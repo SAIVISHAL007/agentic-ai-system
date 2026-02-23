@@ -3,6 +3,7 @@
 from app.tools.base import BaseTool, ToolRegistry, tool_registry
 from app.tools.http_tool import HTTPTool
 from app.tools.memory_tool import MemoryTool
+from app.tools.reasoning_tool import ReasoningTool
 
 __all__ = [
     "BaseTool",
@@ -10,6 +11,7 @@ __all__ = [
     "tool_registry",
     "HTTPTool",
     "MemoryTool",
+    "ReasoningTool",
 ]
 
 
@@ -30,6 +32,10 @@ def initialize_tools() -> ToolRegistry:
     # Register Memory tool (if not already registered)
     if "memory" not in tool_registry:
         tool_registry.register(MemoryTool())
+    
+    # Register Reasoning tool (if not already registered)
+    if "reasoning" not in tool_registry:
+        tool_registry.register(ReasoningTool())
     
     _initialized = True
     return tool_registry

@@ -53,8 +53,10 @@ def execute_goal(request: ExecuteRequest) -> ExecuteResponse:
         steps_result = [
             StepResult(
                 step_number=step.step_number,
+                description=step.description,
                 tool_name=step.tool_name,
                 success=step.success,
+                input=step.input_data,
                 output=step.output,
                 error=step.error,
             )
@@ -65,8 +67,10 @@ def execute_goal(request: ExecuteRequest) -> ExecuteResponse:
             execution_id=execution_context.execution_id,
             goal=execution_context.goal,
             status=execution_context.status,
+            intent=execution_context.intent,
             steps_completed=steps_result,
             final_result=execution_context.final_result,
+            execution_summary=execution_context.execution_summary,
             error=execution_context.error,
             timestamp=execution_context.created_at.isoformat(),
         )

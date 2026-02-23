@@ -43,8 +43,10 @@ class ExecuteRequest(BaseModel):
 class StepResult(BaseModel):
     """Result of a single execution step."""
     step_number: int
+    description: str
     tool_name: str
     success: bool
+    input: Any = Field(default=None, description="Input parameters sent to the tool")
     output: Any
     error: Optional[str] = None
 
@@ -54,7 +56,9 @@ class ExecuteResponse(BaseModel):
     execution_id: str
     goal: str
     status: str  # completed, failed, partial
+    intent: Optional[str] = None
     steps_completed: List[StepResult]
     final_result: Any
+    execution_summary: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     timestamp: str

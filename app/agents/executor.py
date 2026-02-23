@@ -1,10 +1,10 @@
 """Executor agent for executing planned steps."""
 
-from typing import Any, Dict, List, Optional
+from typing import List
+from pydantic import ValidationError
 from app.schemas.request_response import ExecutionStep
-from app.tools.base import tool_registry, BaseTool
+from app.tools.base import tool_registry
 from app.memory.schemas import ExecutionStep as MemoryExecutionStep, ExecutionContext
-from app.memory.vector_store import memory_store
 from app.core.logging import logger
 
 
@@ -48,10 +48,19 @@ class ExecutorAgent:
                 try:
                     logger.debug(f"Executing step {step.step_number}: {step.description}")
                     
-                    # Get the tool
-                    tool = self.tool_registry.get(step.tool_name)
+                    # Get the tool (case-insensitive lookup)
+                    tool_name = step.tool_name.lower()
+                    tool = self.tool_registry.get(tool_name)
                     if not tool:
                         raise ValueError(f"Tool '{step.tool_name}' not found in registry")
+
+                    try:
+                        tool.input_schema.model_validate(step.input_data or {})
+                    except ValidationError as exc:
+                        error_msg = f"Invalid tool input for '{tool_name}': {exc}"
+                        logger.error(error_msg)
+                        execution_context.fail(error_msg)
+                        return execution_context
                     
                     # Execute the tool
                     result = tool.execute(**step.input_data)
@@ -59,7 +68,8 @@ class ExecutorAgent:
                     # Record the step execution
                     memory_step = MemoryExecutionStep(
                         step_number=step.step_number,
-                        tool_name=step.tool_name,
+                        description=step.description,
+                        tool_name=tool_name,
                         input_data=step.input_data,
                         output=result.result,
                         success=result.success,
@@ -71,14 +81,14 @@ class ExecutorAgent:
                     execution_context.set_output(
                         step.step_number,
                         result.result,
-                        key=step.tool_name
+                        key=tool_name
                     )
                     
                     if result.success:
                         logger.info(f"Step {step.step_number} succeeded")
                         success = True
                     else:
-                        last_error = result.error
+                        last_error = result.error or "Tool returned no error details"
                         logger.warning(f"Step {step.step_number} failed: {result.error}")
                         retry_count += 1
                 
@@ -88,7 +98,8 @@ class ExecutorAgent:
                     retry_count += 1
             
             if not success:
-                error_msg = f"Step {step.step_number} failed after {max_retries} attempts: {last_error}"
+                error_details = last_error or "No error details were provided"
+                error_msg = f"Step {step.step_number} failed after {max_retries} attempts: {error_details}"
                 logger.error(error_msg)
                 execution_context.fail(error_msg)
                 return execution_context
@@ -97,10 +108,22 @@ class ExecutorAgent:
         logger.info("All steps executed successfully")
         
         # Extract final result from last step
-        last_output = execution_context.intermediate_outputs.get(
-            f"step_{steps[-1].step_number}", None
-        )
-        execution_context.complete(last_output)
+        last_step = execution_context.executed_steps[-1] if execution_context.executed_steps else None
+        if last_step and last_step.tool_name == "reasoning" and last_step.success:
+            answer_content = None
+            if isinstance(last_step.output, dict):
+                answer_content = last_step.output.get("answer")
+            final_result = {
+                "content": answer_content or last_step.output,
+                "source": "reasoning-only",
+                "note": "No external tools used",
+            }
+            execution_context.complete(final_result)
+        else:
+            last_output = execution_context.intermediate_outputs.get(
+                f"step_{steps[-1].step_number}", None
+            )
+            execution_context.complete(last_output)
         
         return execution_context
     

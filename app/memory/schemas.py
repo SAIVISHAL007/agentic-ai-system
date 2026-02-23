@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class ExecutionStep(BaseModel):
     """Record of a single executed step."""
     step_number: int
+    description: str
     tool_name: str
     input_data: Dict[str, Any]
     output: Any
@@ -21,9 +22,11 @@ class ExecutionContext(BaseModel):
     execution_id: str
     goal: str
     user_context: Dict[str, Any] = Field(default_factory=dict)
+    intent: Optional[str] = None  # reasoning_only, tool_required, mixed
     executed_steps: List[ExecutionStep] = Field(default_factory=list)
     intermediate_outputs: Dict[str, Any] = Field(default_factory=dict)
     final_result: Optional[Any] = None
+    execution_summary: Optional[Dict[str, Any]] = None
     status: str = "running"  # running, completed, failed
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None

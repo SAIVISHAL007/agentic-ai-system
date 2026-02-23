@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class ToolInput(BaseModel):
@@ -47,6 +47,20 @@ class BaseTool(ABC):
         Agents will use this to structure input before calling execute().
         """
         return ToolInput
+
+    @property
+    def required_fields(self) -> list[str]:
+        """Return minimal required fields for this tool's input."""
+        required: list[str] = []
+        schema = self.input_schema
+        if hasattr(schema, "model_fields"):
+            for field_name, field_info in schema.model_fields.items():
+                is_required = False
+                if hasattr(field_info, "is_required"):
+                    is_required = field_info.is_required()
+                if is_required:
+                    required.append(field_name)
+        return required
     
     @abstractmethod
     def execute(self, **kwargs) -> ToolOutput:
