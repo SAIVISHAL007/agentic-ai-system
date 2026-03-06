@@ -7,6 +7,9 @@ from app.agents.planner import PlannerAgent
 from app.agents.executor import ExecutorAgent
 from app.memory.vector_store import memory_store
 from app.memory.schemas import ExecutionContext
+from app.schemas.request_response import FinalResult
+from app.storage.execution_history import get_history_store
+from app.schemas.history import ExecutionHistoryRecord, ExecutionHistoryStep
 from app.core.config import settings
 from app.core.logging import logger
 
@@ -55,6 +58,9 @@ class AgentRunner:
 
         # Intent classification (metadata only)
         execution_context.intent = self.planner.classify_intent(goal, context)
+        execution_context.decision_rationale = self._get_decision_rationale(
+            execution_context.intent, goal
+        )
         
         try:
             # Phase 1: Planning
@@ -79,6 +85,9 @@ class AgentRunner:
 
             # Save to memory
             self.memory_store.save_context(execution_context)
+            
+            # Save to execution history
+            self._save_execution_to_history(execution_context, duration_ms)
             logger.info(f"Execution completed with status: {execution_context.status}")
             
             return execution_context
@@ -94,7 +103,21 @@ class AgentRunner:
             )
             self._resolve_final_output(execution_context)
             self.memory_store.save_context(execution_context)
+            
+            # Save to execution history even on failure
+            self._save_execution_to_history(execution_context, duration_ms)
             return execution_context
+
+    def _get_decision_rationale(self, intent: str, goal: str) -> str:
+        """Explain why the system chose reasoning-only vs tool execution."""
+        if intent == "reasoning_only":
+            return "Goal is definitional/explanatory and does not require live data or external APIs."
+        elif intent == "tool_required":
+            return "Goal requires fetching live/real-time data from external sources."
+        elif intent == "mixed":
+            return "Goal requires both reasoning steps and external data retrieval."
+        else:
+            return "Unknown intent classification."
 
     def _build_execution_summary(
         self,
@@ -122,51 +145,59 @@ class AgentRunner:
         }
 
     def _resolve_final_output(self, execution_context: ExecutionContext) -> None:
-        """Ensure a consistent final output for all executions."""
+        """Resolve final output with STRICT AGENTIC SEMANTICS.
+        
+        AGENTIC RULE: If action fails, return structured failure (no prose).
+        
+        - success = true  : action completed; content has result
+        - success = false : action failed; content = null; error has reason
+        """
         steps = execution_context.executed_steps
         last_step = steps[-1] if steps else None
         tools_used = execution_context.execution_summary.get("tools_used", []) if execution_context.execution_summary else []
 
-        if execution_context.status == "failed" or any(not step.success for step in steps):
-            error_msg = execution_context.error
-            if not error_msg and last_step and last_step.error:
-                error_msg = last_step.error
-            base_message = (
-                f"Tool execution failed. {error_msg}"
-                if error_msg
-                else "Tool execution failed. No additional error details were provided."
+        # HARD FAILURE: Execution status is "failed"
+        if execution_context.status == "failed":
+            error_msg = execution_context.error or (last_step.error if last_step else "Unknown error")
+            logger.warning(f"AGENTIC HARD FAILURE: {error_msg}")
+            execution_context.final_result = FinalResult(
+                success=False,
+                content=None,  # NO TEXT GENERATION
+                source="failed",
+                confidence=0.0,
+                error=error_msg,
+                execution_id=execution_context.execution_id,
             )
-            if "http" in tools_used:
-                content = f"Unable to fetch live data via HTTP tool. {base_message}"
-            else:
-                content = base_message
-            execution_context.final_result = {
-                "content": content,
-                "source": "tool-failure",
-                "confidence": "low",
-                "execution_id": execution_context.execution_id,
-            }
             return
 
+        # HARD FAILURE: No steps executed
         if not steps:
-            execution_context.final_result = {
-                "content": "No steps were executed for this goal.",
-                "source": "tool-failure",
-                "confidence": "low",
-                "execution_id": execution_context.execution_id,
-            }
+            error_msg = "No execution steps were generated or executed"
+            logger.warning(f"AGENTIC HARD FAILURE: {error_msg}")
+            execution_context.final_result = FinalResult(
+                success=False,
+                content=None,  # NO TEXT GENERATION
+                source="failed",
+                confidence=0.0,
+                error=error_msg,
+                execution_id=execution_context.execution_id,
+            )
             return
 
+        # SUCCESS: Extract output from last step
         content = self._extract_content(last_step)
         source = self._derive_source(tools_used)
         confidence = self._derive_confidence(source, execution_context.goal)
 
-        execution_context.final_result = {
-            "content": content,
-            "source": source,
-            "confidence": confidence,
-            "execution_id": execution_context.execution_id,
-        }
+        execution_context.final_result = FinalResult(
+            success=True,
+            content=content,
+            source=source,
+            confidence=confidence,
+            error=None,
+            execution_id=execution_context.execution_id,
+        )
+
 
     def _extract_content(self, last_step: Any) -> str:
         """Extract a human-readable content string from the last step output."""
@@ -203,23 +234,106 @@ class AgentRunner:
             return "mixed"
         return "mixed"
 
-    def _derive_confidence(self, source: str, goal: str) -> str:
-        """Derive confidence label based on source and goal type."""
-        if source == "tool-failure":
-            return "low"
+    def _derive_confidence(self, source: str, goal: str, content: str = "") -> float:
+        """Derive confidence score (0.0-1.0) based on source, goal type, and content."""
+        if source == "fallback":
+            return 0.6
         if source in {"http", "mixed"}:
-            return "high"
-
-        deterministic_keywords = [
-            "calculate",
-            "sum",
-            "add",
-            "subtract",
-            "multiply",
-            "divide",
-            "math",
-            "code",
-        ]
-        if any(keyword in goal.lower() for keyword in deterministic_keywords):
-            return "high"
-        return "medium"
+            return 0.95
+        if source == "timeout":
+            return 0.5
+        if source == "reasoning":
+            # Higher confidence for deterministic queries
+            deterministic_keywords = [
+                "calculate",
+                "sum",
+                "add",
+                "subtract",
+                "multiply",
+                "divide",
+                "math",
+                "code",
+                "explain",
+                "define",
+            ]
+            if any(keyword in goal.lower() for keyword in deterministic_keywords):
+                return 0.9
+            return 0.75
+        if source == "reasoning-only":
+            return 0.75
+        return 0.7
+    
+    def _save_execution_to_history(
+        self,
+        execution_context: ExecutionContext,
+        duration_ms: int,
+    ) -> None:
+        """Save execution record to persistent history storage.
+        
+        Args:
+            execution_context: The execution context to save
+            duration_ms: Total execution duration in milliseconds
+        """
+        try:
+            # Convert execution steps to history steps (simplified)
+            history_steps = []
+            for step in execution_context.executed_steps:
+                history_steps.append(
+                    ExecutionHistoryStep(
+                        step_number=step.step_number,
+                        tool_name=step.tool_name,
+                        description=step.description,
+                        success=step.success,
+                        error=step.error,
+                    )
+                )
+            
+            # Extract summary fields
+            execution_summary = execution_context.execution_summary or {}
+            tools_used = execution_summary.get("tools_used", [])
+            tool_failure_count = execution_summary.get("tool_failures", 0)
+            
+            # Count reasoning steps
+            reasoning_step_count = sum(
+                1 for step in execution_context.executed_steps
+                if step.tool_name == "reasoning"
+            )
+            
+            # Build final result dict (structured)
+            final_result = None
+            if execution_context.final_result:
+                final_result = {
+                    "success": execution_context.final_result.success,
+                    "source": execution_context.final_result.source,
+                    "confidence": execution_context.final_result.confidence,
+                    "execution_id": execution_context.final_result.execution_id,
+                    # content and error excluded if None (no need to store)
+                }
+                if execution_context.final_result.content:
+                    final_result["content"] = execution_context.final_result.content
+                if execution_context.final_result.error:
+                    final_result["error"] = execution_context.final_result.error
+            
+            # Create history record
+            history_record = ExecutionHistoryRecord(
+                execution_id=execution_context.execution_id,
+                goal=execution_context.goal,
+                intent=execution_context.intent,
+                status=execution_context.status,
+                steps=history_steps,
+                tools_used=tools_used,
+                final_result=final_result,
+                error_summary=execution_context.error,
+                duration_ms=duration_ms,
+                timestamp=execution_context.created_at.isoformat(),
+                tool_failure_count=tool_failure_count,
+                reasoning_step_count=reasoning_step_count,
+            )
+            
+            # Save to history store
+            history_store = get_history_store()
+            history_store.save_execution(history_record)
+            logger.info(f"Saved execution to history: {execution_context.execution_id}")
+        except Exception as e:
+            # Don't fail the execution if history save fails
+            logger.error(f"Failed to save execution to history: {str(e)}")

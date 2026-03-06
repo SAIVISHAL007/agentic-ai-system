@@ -23,14 +23,17 @@ class ExecutionContext(BaseModel):
     goal: str
     user_context: Dict[str, Any] = Field(default_factory=dict)
     intent: Optional[str] = None  # reasoning_only, tool_required, mixed
+    decision_rationale: Optional[str] = None  # Explanation of why intent was chosen
     executed_steps: List[ExecutionStep] = Field(default_factory=list)
     intermediate_outputs: Dict[str, Any] = Field(default_factory=dict)
-    final_result: Optional[Any] = None
+    final_result: Optional[Any] = None  # Will be FinalResult object at runtime; Any to avoid circular imports
     execution_summary: Optional[Dict[str, Any]] = None
     status: str = "running"  # running, completed, failed
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
+    
+    model_config = {"arbitrary_types_allowed": True}
     
     def add_step(self, step: ExecutionStep) -> None:
         """Add a step to the execution record."""

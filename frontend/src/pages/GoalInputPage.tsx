@@ -11,11 +11,13 @@ import type { ExecuteRequest } from '../types/api';
 interface GoalInputPageProps {
   onSubmit: (request: ExecuteRequest) => void;
   isLoading: boolean;
+  onHistoryClick?: () => void;
 }
 
 export const GoalInputPage: FC<GoalInputPageProps> = ({
   onSubmit,
   isLoading,
+  onHistoryClick,
 }) => {
   const [goal, setGoal] = useState('');
   const [contextJson, setContextJson] = useState('');
@@ -109,6 +111,17 @@ export const GoalInputPage: FC<GoalInputPageProps> = ({
                 'Execute Goal'
               )}
             </button>
+            {onHistoryClick && (
+              <button
+                type="button"
+                onClick={onHistoryClick}
+                disabled={isLoading}
+                className="submit-btn"
+                style={{ backgroundColor: 'var(--color-secondary)' }}
+              >
+                📊 View History
+              </button>
+            )}
           </div>
         </form>
 

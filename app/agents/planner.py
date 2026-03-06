@@ -33,8 +33,15 @@ class PlannerAgent:
         
         Returns:
             List of ExecutionStep objects in order
+            
+        Raises:
+            ValueError: If plan violates intent requirements
         """
         context = context or {}
+        
+        # Determine intent classification
+        intent = self.classify_intent(goal, context)
+        logger.debug(f"Classified intent: {intent}")
         
         # Build prompt for the planner
         prompt = self._build_planning_prompt(goal, context)
@@ -58,6 +65,9 @@ class PlannerAgent:
         # Parse LLM response into ExecutionStep objects
         steps = self._parse_plan(plan_text)
         steps = self._validate_and_repair_steps(goal, context, steps)
+        
+        # CRITICAL: Enforce intent requirements
+        self._enforce_intent_requirements(steps, intent, goal)
         
         logger.info(f"Generated plan with {len(steps)} steps for goal: {goal}")
         return steps
@@ -123,13 +133,56 @@ class PlannerAgent:
 Available tools and their input schemas:
 {tools_description}
 
-**Tool Selection Guidelines (important):**
-- Use 'reasoning' tool when the goal is conceptual/definitional and does NOT require live data or external actions
-- Use 'http' tool for: Fetching data from external APIs, web requests, or any live/current information
-- Use 'memory' tool for: Storing/retrieving intermediate data during multi-step workflows
-- Use 'reasoning' tool only when no external data or actions are required
-- If using 'reasoning', the reasoning MUST state: "Reasoning-only; no external tools used"
-- NEVER fabricate external data. If the goal requires live data, select 'http' even if it may fail without an API key.
+**CRITICAL Tool Selection Decision Tree:**
+
+1. Does the goal contain keywords like "fetch", "latest", "current", "repository", "search"?
+   → YES: This is LIVE DATA - use 'http' tool with COMPLETE URL including all required query parameters
+   → NO: Continue to step 2
+
+2. Is the goal asking for CURRENT/LIVE/REAL-TIME data (e.g., stock prices, weather, news)?
+   → YES: Use 'http' tool if you KNOW the public API endpoint
+   → NO: Continue to step 3
+   → UNSURE OF API: Use 'reasoning' + explicitly state the limitation
+
+3. Is the goal requesting to fetch from a SPECIFIC, KNOWN, PUBLIC API?
+   → YES: Use 'http' tool (e.g., https://api.coingecko.com/api/v3/simple/price)
+   → NO: Continue to step 4
+
+4. Is the goal a definition, explanation, code generation, summary, or conceptual question?
+   → YES: Use 'reasoning' tool
+   → NO: Continue to step 5
+
+5. Does the goal require storing/retrieving intermediate state across steps?
+   → YES: Use 'memory' tool (in combination with other steps)
+   → NO: Use 'reasoning' tool as default
+
+**CRITICAL HTTP Tool Rules (READ CAREFULLY):**
+- GitHub Search API: MUST include ?q=<search-term> in the URL
+  ✓ CORRECT: https://api.github.com/search/repositories?q=machine-learning&sort=stars
+  ✗ WRONG: https://api.github.com/search/repositories (this will FAIL with 422 error!)
+- NEVER split "figure out the URL" and "make the request" into separate steps
+- Construct the COMPLETE URL with ALL required query parameters in ONE step
+- If you don't know the exact API endpoint and its parameters, use 'reasoning' instead and explain the limitation
+
+**Important Rules (ENFORCE STRICTLY):**
+- NEVER use 'http' for unknown or unverified APIs
+- NEVER guess at endpoint URLs or required parameters
+- NEVER fabricate external data - if the API is unknown, use 'reasoning' with a clear explanation
+- If a goal says "get current X" but no API is known → use 'reasoning' ONLY + explain that real-time data is not available
+- 'reasoning' is the PRIMARY tool for all knowledge-based questions, NOT a fallback
+- 'reasoning' includes: definitions, explanations, code generation, summaries, analysis, comparisons, historical context
+
+**Step Description Format:**
+Each step description MUST start with the step type and explain WHY:
+- "Fetch [data] via API: [reason]" (for http tool)
+- "Internal reasoning: [what to figure out]" (for reasoning tool)  
+- "Store/retrieve in memory: [what data]" (for memory tool)
+
+Examples:
+  ✓ "Fetch Bitcoin price via CoinGecko API: to get current market data"
+  ✓ "Internal reasoning: Explain the concept of REST APIs with examples"
+  ✓ "Internal reasoning: Analyze the fetched data and summarize key insights"
+  ✗ "Get Bitcoin price" (too vague, doesn't explain tool choice)
 
 Goal: {goal}
 {context_str}
@@ -156,16 +209,21 @@ CRITICAL: For input_data, use the EXACT field names and types:
   
 - For 'http' tool: Include 'method' (GET, POST, DELETE, etc), 'url', headers (optional dict), body (optional dict), timeout (optional int)
   Example GET: {{"method": "GET", "url": "https://example.com"}}
+  Example GET with query params: {{"method": "GET", "url": "https://api.github.com/search/repositories?q=machine-learning&sort=stars"}}
   Example POST: {{"method": "POST", "url": "https://example.com", "body": {{"key": "value"}}}}
-  IMPORTANT: Never use empty strings for body - omit it or use null. Never use strings for timeout - use numbers.
+  IMPORTANT: 
+  - Never use empty strings for body - omit it or use null. Never use strings for timeout - use numbers.
+  - For search/query APIs, include ALL required query parameters directly in the URL (e.g., GitHub search requires ?q=...)
+  - DO NOT split "figuring out the URL" and "making the request" into separate steps - construct the COMPLETE URL in one step
 
 Important:
 1. Use only lowercase tool names from the list above
 2. Each step should be specific and actionable
 3. Order steps logically
 4. Include reasoning for each step
-5. Return ONLY the JSON array, no other text
-6. NEVER include empty strings "" for optional fields - omit them entirely or use null
+5. For HTTP requests, construct the COMPLETE URL with all required query parameters in one step (don't use reasoning to figure out the URL first)
+6. Return ONLY the JSON array, no other text
+7. NEVER include empty strings "" for optional fields - omit them entirely or use null
 
 Generate the plan now:"""
         
@@ -277,6 +335,45 @@ Generate the plan now:"""
         cleaned = "".join(char.lower() if char.isalnum() else "_" for char in goal)
         cleaned = "_".join(filter(None, cleaned.split("_")))
         return cleaned[:40] or "result"
+
+    def _enforce_intent_requirements(self, steps: List[ExecutionStep], intent: str, goal: str) -> None:
+        """
+        CRITICAL: Enforce that plan matches intent requirements.
+        
+        If intent == "tool_required", plan MUST include at least one non-reasoning tool.
+        Otherwise, raise an error immediately (FAIL-FAST).
+        
+        This prevents the system from generating reasoning-only answers for goals
+        that require external data/actions.
+        """
+        if not steps:
+            raise ValueError(f"Plan generated no steps for goal: {goal}")
+        
+        if intent == "tool_required":
+            # Check if plan includes at least one executable (non-reasoning) tool
+            tool_names = [step.tool_name.lower() for step in steps]
+            non_reasoning_tools = [t for t in tool_names if t != "reasoning"]
+            
+            if not non_reasoning_tools:
+                raise ValueError(
+                    f"AGENTIC CONSTRAINT VIOLATION: Goal classified as 'tool_required' "
+                    f"but plan only includes 'reasoning' tool. "
+                    f"Goal: '{goal}'. "
+                    f"Plan: {[s.tool_name for s in steps]}. "
+                    f"This goal requires external tools (HTTP, memory, etc.) or should not be classified as 'tool_required'."
+                )
+            logger.info(f"Intent 'tool_required' enforced: plan includes {non_reasoning_tools}")
+        
+        elif intent == "reasoning_only":
+            # Reasoning-only goals should not use external tools
+            tool_names = [step.tool_name.lower() for step in steps]
+            external_tools = [t for t in tool_names if t not in ("reasoning", "memory")]
+            if external_tools:
+                logger.warning(
+                    f"Intent mismatch: goal classified as 'reasoning_only' "
+                    f"but plan includes external tools: {external_tools}. "
+                    f"This may indicate misclassification. Continuing anyway."
+                )
 
     def _has_value(self, value: Any) -> bool:
         """Return True when a value is non-empty and usable."""

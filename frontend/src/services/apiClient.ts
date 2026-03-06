@@ -4,7 +4,14 @@
  * Treats backend as black-box
  */
 
-import type { ExecuteRequest, ExecuteResponse, ApiError } from '../types/api';
+import type {
+  ExecuteRequest,
+  ExecuteResponse,
+  ApiError,
+  HistoryListResponse,
+  HistoryDetailResponse,
+  HistoryStatsResponse,
+} from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -39,6 +46,56 @@ class ApiClient {
       body: JSON.stringify(request),
     });
 
+    if (!response.ok) {
+      throw this.handleError(response);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get execution history list
+   * GET /api/history?limit=50&offset=0&intent=&status=
+   */
+  async getExecutionHistory(
+    limit: number = 50,
+    offset: number = 0,
+    intent?: string,
+    status?: string
+  ): Promise<HistoryListResponse> {
+    const params = new URLSearchParams();
+    params.set('limit', limit.toString());
+    params.set('offset', offset.toString());
+    if (intent) params.set('intent', intent);
+    if (status) params.set('status', status);
+
+    const response = await fetch(`${this.baseUrl}/api/history?${params}`);
+    if (!response.ok) {
+      throw this.handleError(response);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get execution history detail
+   * GET /api/history/{execution_id}
+   */
+  async getExecutionDetail(executionId: string): Promise<HistoryDetailResponse> {
+    const response = await fetch(`${this.baseUrl}/api/history/${executionId}`);
+    if (!response.ok) {
+      throw this.handleError(response);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get execution history statistics
+   * GET /api/history/stats
+   */
+  async getExecutionStats(): Promise<HistoryStatsResponse> {
+    const response = await fetch(`${this.baseUrl}/api/history/stats`);
     if (!response.ok) {
       throw this.handleError(response);
     }

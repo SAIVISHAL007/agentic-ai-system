@@ -69,9 +69,67 @@ export const ResultPanel: React.FC<ResultPanelProps> = ({ execution }) => {
 
         <div className="result-output">
           <h3>Final Output</h3>
-          <pre className="result-code">
-            <code>{formatOutput(execution.final_result)}</code>
-          </pre>
+          
+          {/* AGENTIC: Handle success vs hard failure */}
+          {execution.final_result && execution.final_result.success ? (
+            // SUCCESS: Content is available
+            <div className="final-result-structured success">
+              <div className="result-content">
+                <pre className="result-code">
+                  <code>{execution.final_result.content}</code>
+                </pre>
+              </div>
+              
+              <div className="result-metadata-row mt-md">
+                <div className="metadata-card">
+                  <div className="metadata-label">Source</div>
+                  <div className="metadata-value">
+                    <code>{execution.final_result.source}</code>
+                  </div>
+                </div>
+                
+                <div className="metadata-card">
+                  <div className="metadata-label">Confidence</div>
+                  <div className="metadata-value">
+                    {(execution.final_result.confidence * 100).toFixed(0)}%
+                    <span className="text-small ml-sm">
+                      ({execution.final_result.confidence >= 0.8 ? 'High' : 
+                        execution.final_result.confidence >= 0.65 ? 'Medium' : 'Low'})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : execution.final_result && !execution.final_result.success ? (
+            // HARD FAILURE: Action could not be completed
+            <div className="final-result-structured error">
+              <div className="error-box">
+                <h4>⚠️ Action Failed</h4>
+                <p className="error-message">
+                  {execution.final_result.error || 'Action could not be completed'}
+                </p>
+                <div className="failure-details">
+                  <div className="detail-row">
+                    <span className="detail-label">Source:</span>
+                    <code className="detail-value">{execution.final_result.source}</code>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Confidence:</span>
+                    <span className="detail-value">{(execution.final_result.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+                <p className="agentic-note">
+                  <strong>Agentic Semantics:</strong> This is a legitimate failure state. 
+                  The system attempted to complete the requested action but could not. 
+                  No fallback explanation was generated.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <pre className="result-code">
+              <code>{formatOutput(execution.final_result)}</code>
+            </pre>
+          )}
         </div>
 
         {execution.execution_summary && (

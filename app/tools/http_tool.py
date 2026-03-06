@@ -57,7 +57,7 @@ class HTTPTool(BaseTool):
         return ["url"]
     
     def execute(self, **kwargs) -> ToolOutput:
-        """Execute HTTP request."""
+        """Execute HTTP request with validation."""
         try:
             # Clean up input data from LLM
             # The LLM may generate invalid types, so we normalize them
@@ -73,6 +73,16 @@ class HTTPTool(BaseTool):
             
             # Parse input
             input_data = HTTPToolInput(**kwargs)
+            
+            # Validate URL and check for common API mistakes
+            validation_error = self._validate_url(input_data.url, input_data.method)
+            if validation_error:
+                logger.error(f"URL validation failed: {validation_error}")
+                return ToolOutput(
+                    success=False,
+                    result=None,
+                    error=f"Invalid API request: {validation_error}"
+                )
             
             logger.debug(f"HTTP {input_data.method} {input_data.url}")
             
@@ -117,3 +127,34 @@ class HTTPTool(BaseTool):
             error_msg = f"HTTP request failed: {str(e)}"
             logger.error(error_msg)
             return ToolOutput(success=False, result=None, error=error_msg)
+    
+    def _validate_url(self, url: str, method: str) -> Optional[str]:
+        """Validate URL and check for common API mistakes.
+        
+        Returns error message if invalid, None if valid.
+        """
+        # Check for valid URL scheme
+        if not url.startswith(("http://", "https://")):
+            return f"URL must start with http:// or https://, got: {url}"
+        
+        # GitHub API specific validations
+        if "api.github.com" in url:
+            # GitHub search API requires 'q' parameter
+            if "/search/" in url and "?q=" not in url and "&q=" not in url:
+                return (
+                    "GitHub Search API requires a 'q' (query) parameter. "
+                    f"Example: {url}?q=machine-learning&sort=stars"
+                )
+            
+            # Check for incomplete GitHub URLs
+            if url.endswith("/search/repositories") and "?" not in url:
+                return (
+                    "GitHub repository search requires query parameters. "
+                    "Example: https://api.github.com/search/repositories?q=topic:machine-learning&sort=stars"
+                )
+        
+        # General validation: Check for placeholder patterns
+        if "{" in url or "}" in url:
+            return f"URL contains unresolved placeholder: {url}"
+        
+        return None

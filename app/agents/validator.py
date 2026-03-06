@@ -28,7 +28,12 @@ class ToolInputValidator:
         context: Optional[Dict[str, Any]] = None,
         max_attempts: int = 2,
     ) -> Dict[str, Any]:
-        """Validate tool inputs and attempt LLM repair if needed."""
+        """Validate tool inputs and attempt LLM repair if needed.
+        
+        Rules:
+        - For HTTP tool: Fail fast if URL or method is missing (no repair)
+        - For other tools: Allow 2 repair attempts max
+        """
         tool_name = step.tool_name.lower()
         tool = tool_registry.get(tool_name)
         if not tool:
@@ -36,6 +41,14 @@ class ToolInputValidator:
 
         input_data = dict(step.input_data or {})
         context = context or {}
+
+        # HTTP tool: fail fast if critical fields are missing
+        if tool_name == "http":
+            if not self._has_value(input_data.get("url")):
+                raise ValueError("HTTP tool requires 'url' field; cannot proceed without valid URL")
+            if not self._has_value(input_data.get("method")):
+                input_data["method"] = "GET"  # Default method
+            return input_data
 
         for attempt in range(max_attempts + 1):
             errors = self._collect_errors(tool, input_data)

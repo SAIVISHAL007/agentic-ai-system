@@ -25,9 +25,11 @@ export interface StepResult {
 }
 
 export interface FinalResult {
-  content: string;
-  source: 'reasoning-only' | 'http' | 'mixed' | 'tool-failure';
-  confidence: 'high' | 'medium' | 'low';
+  success: boolean;  // Whether the intended action completed successfully
+  content: string | null;  // Result content (null if action failed)
+  source: 'reasoning' | 'http' | 'memory' | 'failed';  // AGENTIC: 'failed' is a legitimate source
+  confidence: number;  // 0.0-1.0 float from backend (0.0 for hard failures)
+  error?: string;  // Structured error message if action failed
   execution_id: string;
 }
 
@@ -46,6 +48,7 @@ export interface ExecuteResponse {
   goal: string;
   status: 'completed' | 'failed' | 'partial';
   intent?: 'reasoning_only' | 'tool_required' | 'mixed';
+  decision_rationale?: string;  // Explanation of why that intent was chosen
   steps_completed: StepResult[];
   final_result: FinalResult;
   execution_summary?: ExecutionSummary;
@@ -64,3 +67,59 @@ export interface ApiError {
  * Loading/execution state for UI
  */
 export type ExecutionState = 'idle' | 'loading' | 'success' | 'error';
+
+/**
+ * Execution history types (from app/schemas/history.py)
+ */
+export interface HistoryStep {
+  step_number: number;
+  tool_name: string;
+  description: string;
+  success: boolean;
+  error: string | null;
+}
+
+export interface HistoryRecord {
+  execution_id: string;
+  goal: string;
+  intent: string | null;
+  status: string;
+  steps: HistoryStep[];
+  tools_used: string[];
+  final_result: Record<string, unknown> | null;
+  error_summary: string | null;
+  duration_ms: number;
+  timestamp: string;
+  tool_failure_count: number;
+  reasoning_step_count: number;
+}
+
+export interface HistorySummary {
+  execution_id: string;
+  goal: string;
+  intent: string | null;
+  status: string;
+  tools_used: string[];
+  timestamp: string;
+  duration_ms: number;
+}
+
+export interface HistoryListResponse {
+  executions: HistorySummary[];
+  total_count: number;
+  offset: number;
+  limit: number;
+}
+
+export interface HistoryDetailResponse {
+  execution: HistoryRecord;
+}
+
+export interface HistoryStatsResponse {
+  total_executions: number;
+  successful: number;
+  failed: number;
+  tools_used: string[];
+  avg_duration_ms: number;
+  intents: Record<string, number>;
+}

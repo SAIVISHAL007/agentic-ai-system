@@ -195,13 +195,48 @@ Frontend will be at: http://localhost:5173
 
 ## Available Tools
 
+### Tool Selection Decision Tree
+
+The system follows a strict decision tree to choose the appropriate tool:
+
+```
+1. Does the goal require CURRENT/LIVE/REAL-TIME data?
+   ├─ YES + Known Public API → Use HTTP Tool
+   └─ YES + Unknown API → Use Reasoning Tool + Explain limitation
+
+2. Does the goal ask to fetch from a SPECIFIC, KNOWN, PUBLIC API?
+   ├─ YES → Use HTTP Tool
+   └─ NO → Continue
+
+3. Is the goal asking for definitions, explanations, code generation, or analysis?
+   ├─ YES → Use Reasoning Tool (primary for knowledge-based tasks)
+   └─ NO → Continue
+
+4. Does the goal require storing/retrieving data across multiple steps?
+   ├─ YES → Use Memory Tool (+ other tools as needed)
+   └─ NO → Use Reasoning Tool (default)
+```
+
+**Important Principles:**
+- **Reasoning Tool** is the **PRIMARY tool** for all knowledge-based questions (not a fallback)
+- **HTTP Tool** is used ONLY when a specific, verified, public API is known
+- **Memory Tool** supports multi-step workflows by storing intermediate results
+- System NEVER fabricates external data; if API is unknown, reasoning tool explains the limitation clearly
+
+---
+
 ### 1. HTTP Tool (`http`)
 **Purpose**: Make HTTP requests to external APIs
 
 **When to use:**
-- Fetch data from REST APIs
-- POST/PUT/DELETE to endpoints
-- Web data retrieval
+- Fetch current/live data from known public APIs (e.g., CoinGecko, GitHub API)
+- POST/PUT/DELETE operations to verified endpoints
+- Real-time data retrieval (stock prices, weather, news)
+
+**When NOT to use:**
+- Unknown or unverified API endpoints
+- APIs requiring complex authentication (unless credentials provided in context)
+- When no specific API is known for the requested data
 
 **Example:**
 ```json
@@ -218,9 +253,14 @@ Frontend will be at: http://localhost:5173
 **Purpose**: Store and retrieve intermediate data during execution
 
 **When to use:**
-- Multi-step workflows requiring state
-- Passing data between steps
-- Temporary storage during execution
+- Multi-step workflows requiring state persistence
+- Passing data between execution steps
+- Temporary storage during complex workflows
+- Resolving placeholders like `{stored_key}` in subsequent steps
+
+**When NOT to use:**
+- Single-step goals with no intermediate data
+- Long-term persistent storage (this is in-memory only)
 
 **Example (Store):**
 ```json
@@ -246,19 +286,25 @@ Frontend will be at: http://localhost:5173
 ```
 
 ### 3. Reasoning Tool (`reasoning`)
-**Purpose**: Reasoning-only fallback when no external tools are applicable
+**Purpose**: Answer knowledge-based questions using the LLM's training data
 
-**When to use (fallback only):**
-- Informational questions that do not require external data
-- Conceptual explanations and definitions
-- No real-world actions or API calls needed
+**When to use (PRIMARY tool for these cases):**
+- Definitions, explanations, and conceptual questions
+- Code generation and technical tutorials
+- Summaries, analyses, and comparisons
+- Any question that does NOT require current/live external data
+- Fallback when HTTP tool fails but a best-effort answer is possible
+
+**When NOT to use:**
+- Questions requiring current/real-time data from external sources
+- Questions where specific API data is available and known
 
 **Example:**
 ```json
 {
   "tool_name": "reasoning",
   "input_data": {
-    "question": "What is Python?"
+    "question": "What is Python and how does it work?"
   }
 }
 ```
