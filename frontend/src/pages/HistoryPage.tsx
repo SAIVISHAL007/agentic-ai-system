@@ -15,7 +15,7 @@ interface HistoryFilter {
   status?: string;
 }
 
-export function HistoryPage({ onBack }: { onBack: () => void }) {
+export function HistoryPage({ onBack, preselectedExecutionId }: { onBack: () => void; preselectedExecutionId?: string }) {
   const [executions, setExecutions] = useState<HistorySummary[]>([]);
   const [stats, setStats] = useState<HistoryStatsResponse | null>(null);
   const [selectedExecution, setSelectedExecution] = useState<HistoryRecord | null>(null);
@@ -32,6 +32,29 @@ export function HistoryPage({ onBack }: { onBack: () => void }) {
     loadHistory();
     loadStats();
   }, [filter, sortField, sortOrder, limit, offset]);
+
+  /**
+   * If a specific execution is preselected (from sidebar click),
+   * fetch and display it immediately
+   */
+  useEffect(() => {
+    if (preselectedExecutionId) {
+      const loadPreselected = async () => {
+        try {
+          setLoading(true);
+          const response = await apiClient.getExecutionDetail(preselectedExecutionId);
+          setSelectedExecution(response.execution);
+        } catch (err) {
+          console.error('Failed to load selected execution:', err);
+          setError(err instanceof Error ? err.message : 'Failed to load execution');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      loadPreselected();
+    }
+  }, [preselectedExecutionId]);
 
   const loadHistory = async () => {
     setLoading(true);
@@ -57,8 +80,8 @@ export function HistoryPage({ onBack }: { onBack: () => void }) {
           bVal = b.status;
         }
 
-        if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
-        if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+        if ((aVal as any) < (bVal as any)) return sortOrder === 'asc' ? -1 : 1;
+        if ((aVal as any) > (bVal as any)) return sortOrder === 'asc' ? 1 : -1;
         return 0;
       });
 

@@ -116,10 +116,9 @@ export const GoalInputPage: FC<GoalInputPageProps> = ({
                 type="button"
                 onClick={onHistoryClick}
                 disabled={isLoading}
-                className="submit-btn"
-                style={{ backgroundColor: 'var(--color-secondary)' }}
+                className="submit-btn history-btn secondary"
               >
-                📊 View History
+                History
               </button>
             )}
           </div>
