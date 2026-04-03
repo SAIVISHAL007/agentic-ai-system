@@ -1,8 +1,9 @@
 """Reasoning-only tool for informational answers without external actions."""
 from pydantic import BaseModel, Field
+import re
 
 from app.tools.base import BaseTool, ToolOutput
-from app.llm.groq_client import get_llm_client
+from app.llm.client import get_llm_client
 from app.core.config import settings
 from app.core.logging import logger
 
@@ -50,12 +51,23 @@ class ReasoningTool(BaseTool):
 
             logger.debug(f"Answering question: {input_data.question}")
 
+            model_identity = self._build_model_identity_answer(input_data.question)
+            if model_identity:
+                return ToolOutput(
+                    success=True,
+                    result={
+                        "answer": model_identity,
+                        "question": input_data.question,
+                        "note": "Answer derived from runtime configuration",
+                    },
+                )
+
             system_message = (
-                "You are an agentic execution system. Provide a concise, accurate answer based on the provided context. "
-                "CRITICAL: If context contains actual data (numbers, values, metrics), extract and use them directly in your answer. "
-                "Do NOT say 'the value stored at key X' or 'I would need to retrieve'. Instead, provide the actual value from context. "
-                "Never output unresolved template variables, placeholders, or variable-style tokens such as $bitcoin_price or {variable}. "
-                "If context is insufficient, say so explicitly instead of describing what you would need."
+                "You are an agentic execution system. Provide a concise, accurate answer. "
+                "If context contains actual data (numbers, values, metrics), extract and use them directly in your answer. "
+                "Do NOT say 'the value stored at key X' or 'I would need to retrieve'. Instead, provide the actual value from context when available. "
+                "When no useful context is provided, answer from general knowledge. "
+                "Never output unresolved template variables, placeholders, or variable-style tokens such as $bitcoin_price or {variable}."
             )
 
             user_prompt = f"Question: {input_data.question}"
@@ -97,6 +109,35 @@ class ReasoningTool(BaseTool):
             error_msg = f"Reasoning failed: {str(e)}"
             logger.error(error_msg)
             return ToolOutput(success=False, result=None, error=error_msg)
+
+    def _build_model_identity_answer(self, question: str) -> str:
+        question_text = question.lower()
+        identity_markers = [
+            "model version",
+            "model name",
+            "what model",
+            "which model",
+            "your model",
+            "your version",
+            "what are you",
+            "who are you",
+            "tell me your model",
+        ]
+
+        if not any(marker in question_text for marker in identity_markers):
+            return ""
+
+        provider = settings.LLM_PROVIDER.lower()
+        if provider == "gemini":
+            model_name = settings.GEMINI_MODEL
+            pretty_model = self._prettify_model_name(model_name)
+            return f"I’m using Gemini ({pretty_model})"
+
+        return f"I’m using {provider.title()}"
+
+    def _prettify_model_name(self, model_name: str) -> str:
+        cleaned = re.sub(r"[-_]+", " ", model_name).strip()
+        return cleaned.title()
     
     def _format_context(self, context: Union[str, dict, list]) -> str:
         """Format context based on its type for clear LLM prompt.

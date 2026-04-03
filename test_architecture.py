@@ -41,7 +41,7 @@ def test_imports():
         print("✓ Agents initialized")
         
         # LLM imports
-        from app.llm.groq_client import get_llm_client
+        from app.llm.client import get_llm_client
         print("✓ LLM client available")
         
         return True

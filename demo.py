@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from app.agents.executor import ExecutorAgent
 from app.agents.planner import PlannerAgent
 from app.schemas.request_response import ExecutionStep
-from app.llm.groq_client import BaseLLMClient, LLMResponse
+from app.llm.client import BaseLLMClient, LLMResponse
 from app.memory.vector_store import memory_store
 from app.memory.schemas import ExecutionContext
 from app.tools import initialize_tools
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         print("="*70)
         print("""
 Next Steps:
-  1. Export your API key: export GROQ_API_KEY=... or OPENAI_API_KEY=...
+    1. Export your API key: export LLM_PROVIDER=gemini && export GEMINI_API_KEY=...
   2. Run the server: uvicorn app.main:app --reload
   3. Test the /api/execute endpoint with a curl command
   4. Try the examples.py for more detailed examples

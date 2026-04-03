@@ -18,13 +18,10 @@ class Settings:
     """Application settings loaded from environment variables."""
 
     # LLM Configuration
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq")  # groq or openai
-    GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")
 
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
-    OPENAI_BASE_URL: Optional[str] = os.getenv("OPENAI_BASE_URL", None)
+    GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     # Agent Configuration
     MAX_REASONING_STEPS: int = int(os.getenv("MAX_REASONING_STEPS", "10"))
@@ -60,10 +57,10 @@ class Settings:
     @classmethod
     def validate(cls) -> None:
         """Validate that required settings are configured."""
-        if cls.LLM_PROVIDER == "groq" and not cls.GROQ_API_KEY:
-            raise ValueError("GROQ_API_KEY is required when LLM_PROVIDER=groq")
-        if cls.LLM_PROVIDER == "openai" and not cls.OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+        if cls.LLM_PROVIDER != "gemini":
+            raise ValueError("Gemini-only mode enabled: set LLM_PROVIDER=gemini")
+        if cls.LLM_PROVIDER == "gemini" and not cls.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini")
         if cls.API_AUTH_ENABLED and not cls.API_AUTH_TOKEN:
             raise ValueError("API_AUTH_TOKEN is required when API_AUTH_ENABLED=true")
         if cls.HISTORY_BACKEND not in {"jsonl", "sqlite"}:

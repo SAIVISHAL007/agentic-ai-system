@@ -30,7 +30,8 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Set LLM API key
-export GROQ_API_KEY=your_groq_api_key
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=your_gemini_api_key
 
 # Start server
 uvicorn app.main:app --reload --port 8000
@@ -163,7 +164,7 @@ agentic-ai-system/
 │   │   ├── memory_tool.py            # State management
 │   │   └── __init__.py               # Tool registry
 │   ├── llm/
-│   │   └── groq_client.py            # LLM integration (Groq + OpenAI)
+│   │   └── client.py                 # LLM integration (Gemini)
 │   ├── schemas/
 │   │   └── request_response.py       # Pydantic models (validation)
 │   ├── memory/
@@ -196,14 +197,10 @@ agentic-ai-system/
 
 **Required (choose one):**
 ```bash
-# Groq (recommended for demos)
-export LLM_PROVIDER=groq
-export GROQ_API_KEY=your_key_here
-export GROQ_MODEL=llama-3.1-70b-versatile
-
-# OR OpenAI-compatible
-export LLM_PROVIDER=openai
-export OPENAI_API_KEY=your_key_here
+# Gemini
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=your_key_here
+export GEMINI_MODEL=gemini-3.1-flash-lite-preview
 ```
 
 **Optional:**
@@ -443,7 +440,8 @@ curl -X POST http://localhost:8000/api/execute \
 
 ### "API_KEY is required"
 ```bash
-export GROQ_API_KEY=your_api_key
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=your_api_key
 ```
 
 ### "Tool 'X' not found"

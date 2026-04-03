@@ -246,9 +246,9 @@ source venv/bin/activate
 
 pip install -r requirements.txt
 
-echo "GROQ_API_KEY=your_api_key_here" > .env
-echo "LLM_PROVIDER=groq" >> .env
-echo "GROQ_MODEL=llama-3.3-70b-versatile" >> .env
+echo "GEMINI_API_KEY=your_api_key_here" > .env
+echo "LLM_PROVIDER=gemini" >> .env
+echo "GEMINI_MODEL=gemini-3.1-flash-lite-preview" >> .env
 
 uvicorn app.main:app --reload --port 8000
 ```

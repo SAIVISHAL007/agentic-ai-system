@@ -140,6 +140,30 @@ class ExecutorAgent:
             if not success:
                 error_details = last_error or "No error details were provided"
                 error_msg = f"Step {step.step_number} ({step.tool_name}): {error_details}"
+
+                # Graceful degradation: if a reasoning step fails but we already have
+                # successful non-reasoning outputs, continue and let runner resolve
+                # final output from grounded tool data.
+                if step.tool_name.lower() == "reasoning":
+                    has_grounded_output = any(
+                        prev.success and prev.tool_name != "reasoning"
+                        for prev in execution_context.executed_steps
+                    )
+                    if has_grounded_output:
+                        logger.warning(
+                            "Reasoning step failed after grounded tool outputs; continuing with partial result: %s",
+                            error_details,
+                        )
+                        self._emit_step_event(step_callback, {
+                            "type": "step_completed",
+                            "step_number": step.step_number,
+                            "description": step.description,
+                            "tool_name": step.tool_name.lower(),
+                            "success": False,
+                            "error": error_details,
+                        })
+                        continue
+
                 logger.error(error_msg)
                 memory_step = MemoryExecutionStep(
                     step_number=step.step_number,

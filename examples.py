@@ -4,7 +4,7 @@ Example: End-to-End Agentic System Usage
 This example demonstrates how to use the agentic system to plan and execute
 a goal using the available tools.
 
-Note: Requires GROQ_API_KEY or OPENAI_API_KEY environment variable.
+Note: Requires GEMINI_API_KEY environment variable.
 """
 
 import sys
@@ -173,9 +173,8 @@ def example_5_planning_process():
         if "API_KEY" in str(e):
             print(f"\n⚠️  Skipped (no API key configured)")
             print(f"   To run this example, set:")
-            print(f"   export GROQ_API_KEY=<your_key>")
-            print(f"   OR")
-            print(f"   export OPENAI_API_KEY=<your_key>")
+            print(f"   export LLM_PROVIDER=gemini")
+            print(f"   export GEMINI_API_KEY=<your_key>")
         else:
             raise
     except Exception as e:
@@ -226,9 +225,8 @@ def example_6_execution_flow():
         if "API_KEY" in str(e):
             print(f"\n⚠️  Skipped (no API key configured)")
             print(f"   To run end-to-end execution, set environment variables:")
-            print(f"   export GROQ_API_KEY=<your_key>")
-            print(f"   OR")
-            print(f"   export OPENAI_API_KEY=<your_key>")
+            print(f"   export LLM_PROVIDER=gemini")
+            print(f"   export GEMINI_API_KEY=<your_key>")
         else:
             raise
     except Exception as e:
@@ -257,7 +255,7 @@ if __name__ == "__main__":
     print("✓ Examples Complete!")
     print("="*70)
     print("\nNext Steps:")
-    print("  1. Set your LLM API key: export GROQ_API_KEY=... or OPENAI_API_KEY=...")
+    print("  1. Set your LLM API key: export LLM_PROVIDER=gemini && export GEMINI_API_KEY=...")
     print("  2. Start the server: uvicorn app.main:app --reload")
     print("  3. Try: curl -X POST http://localhost:8000/api/execute ...")
     print()

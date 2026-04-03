@@ -114,6 +114,7 @@ class HTTPTool(BaseTool):
                     response_data = response.text
                 
                 result = {
+                        "url": input_data.url,
                     "status_code": response.status_code,
                     "body": response_data,
                     "headers": dict(response.headers),

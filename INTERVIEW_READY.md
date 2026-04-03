@@ -250,7 +250,8 @@ Goal: "Fetch Bitcoin price"
 # Backend
 cd agentic-ai-system
 source .venv/bin/activate
-export GROQ_API_KEY=<your-key>
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=<your-key>
 python app/main.py
 
 # Frontend (new terminal)
@@ -311,7 +312,7 @@ Unlike traditional chatbots, this system autonomously:
 ✓ Executes real API calls safely
 ✓ Provides complete execution traces
 
-Tech: Python, FastAPI, React, TypeScript, Groq LLM
+Tech: Python, FastAPI, React, TypeScript, Gemini LLM
 
 Key features:
 - HTTP tool with GitHub API validation

@@ -10,7 +10,8 @@
 ```bash
 cd /workspaces/agentic-ai-system
 source .venv/bin/activate
-export GROQ_API_KEY=<your-groq-api-key>
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=<your-gemini-api-key>
 python app/main.py
 ```
 
@@ -204,7 +205,8 @@ source .venv/bin/activate
 python -c "
 from app.agents.runner import AgentRunner
 import os
-os.environ['GROQ_API_KEY'] = '${GROQ_API_KEY}'
+os.environ['LLM_PROVIDER'] = 'gemini'
+os.environ['GEMINI_API_KEY'] = '${GEMINI_API_KEY}'
 runner = AgentRunner()
 ctx = runner.run('What is REST?')
 assert ctx.final_result is not None
@@ -243,7 +245,8 @@ pip install -r requirements.txt
 ### Issue: "No API key" error
 **Fix**:
 ```bash
-export GROQ_API_KEY=<your-key>
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=<your-key>
 # Or add to .env file
 ```
 

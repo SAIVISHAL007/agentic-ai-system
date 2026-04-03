@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.llm.groq_client import BaseLLMClient, get_llm_client
+from app.llm.client import BaseLLMClient, get_llm_client
 from app.tools.base import tool_registry, BaseTool
 from app.schemas.request_response import ExecutionStep
 
