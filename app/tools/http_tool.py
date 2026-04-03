@@ -23,8 +23,8 @@ class HTTPToolInput(BaseModel):
         default=None,
         description="Optional request body (for POST, PUT, etc.)"
     )
-    timeout: int = Field(
-        default=30,
+    timeout: Optional[int] = Field(
+        default=None,
         description="Request timeout in seconds"
     )
 
@@ -69,10 +69,14 @@ class HTTPTool(BaseTool):
                 try:
                     kwargs["timeout"] = int(kwargs["timeout"])
                 except (ValueError, TypeError):
-                    kwargs["timeout"] = 30
+                    kwargs["timeout"] = None
+
+            if kwargs.get("timeout") in (None, 0):
+                kwargs["timeout"] = None
             
             # Parse input
             input_data = HTTPToolInput(**kwargs)
+            timeout_seconds = input_data.timeout or 10
             
             # Validate URL and check for common API mistakes
             validation_error = self._validate_url(input_data.url, input_data.method)
@@ -95,7 +99,7 @@ class HTTPTool(BaseTool):
                 }
             
             # Make request
-            with httpx.Client(timeout=input_data.timeout) as client:
+            with httpx.Client(timeout=timeout_seconds) as client:
                 response = client.request(
                     method=input_data.method,
                     url=input_data.url,

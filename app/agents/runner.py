@@ -1,6 +1,6 @@
 """Agent runner - orchestrates planning and execution."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 import json
 import time
 from app.agents.planner import PlannerAgent
@@ -34,6 +34,7 @@ class AgentRunner:
         self,
         goal: str,
         context: Optional[Dict[str, Any]] = None,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> ExecutionContext:
         """
         Run the agentic system end-to-end.
@@ -61,12 +62,29 @@ class AgentRunner:
         execution_context.decision_rationale = self._get_decision_rationale(
             execution_context.intent, goal
         )
-        
+
+
         try:
             # Phase 1: Planning
+            self._emit_event(event_callback, {
+                "type": "planning_started",
+                "goal": goal,
+            })
             logger.info("Phase 1: Planning")
             steps = self.planner.plan(goal, context)
             logger.info(f"Generated {len(steps)} execution steps")
+            self._emit_event(event_callback, {
+                "type": "plan_created",
+                "step_count": len(steps),
+                "steps": [
+                    {
+                        "step_number": step.step_number,
+                        "description": step.description,
+                        "tool_name": step.tool_name,
+                    }
+                    for step in steps
+                ],
+            })
             
             # Phase 2: Execution
             logger.info("Phase 2: Execution")
@@ -74,6 +92,7 @@ class AgentRunner:
                 steps=steps,
                 execution_context=execution_context,
                 max_retries=settings.MAX_RETRIES,
+                step_callback=event_callback,
             )
             
             duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -89,6 +108,11 @@ class AgentRunner:
             # Save to execution history
             self._save_execution_to_history(execution_context, duration_ms)
             logger.info(f"Execution completed with status: {execution_context.status}")
+            self._emit_event(event_callback, {
+                "type": "execution_completed",
+                "execution_id": execution_context.execution_id,
+                "status": execution_context.status,
+            })
             
             return execution_context
         
@@ -106,7 +130,15 @@ class AgentRunner:
             
             # Save to execution history even on failure
             self._save_execution_to_history(execution_context, duration_ms)
+            self._emit_event(event_callback, {
+                "type": "execution_failed",
+                "execution_id": execution_context.execution_id,
+                "status": execution_context.status,
+                "error": execution_context.error,
+            })
             return execution_context
+
+
 
     def _get_decision_rationale(self, intent: str, goal: str) -> str:
         """Explain why the system chose reasoning-only vs tool execution."""
@@ -156,6 +188,7 @@ class AgentRunner:
         last_step = steps[-1] if steps else None
         tools_used = execution_context.execution_summary.get("tools_used", []) if execution_context.execution_summary else []
 
+
         # HARD FAILURE: Execution status is "failed"
         if execution_context.status == "failed":
             error_msg = execution_context.error or (last_step.error if last_step else "Unknown error")
@@ -184,10 +217,11 @@ class AgentRunner:
             )
             return
 
-        # SUCCESS: Extract output from last step
-        content = self._extract_content(last_step)
+        # SUCCESS: Extract output from best available step (not just last step).
+        best_step = self._select_best_output_step(steps)
+        content = self._extract_content(best_step)
         source = self._derive_source(tools_used)
-        confidence = self._derive_confidence(source, execution_context.goal)
+        confidence = self._derive_confidence(source, execution_context.goal, content)
 
         execution_context.final_result = FinalResult(
             success=True,
@@ -198,6 +232,23 @@ class AgentRunner:
             execution_id=execution_context.execution_id,
         )
 
+
+    def _select_best_output_step(self, steps: list[Any]) -> Any:
+        """Choose the most user-meaningful step output.
+
+        Prefer reasoning/http steps over memory-store acknowledgements.
+        """
+        if not steps:
+            return None
+
+        for step in reversed(steps):
+            if not step.success:
+                continue
+            if step.tool_name == "memory" and self._is_memory_ack(step.output):
+                continue
+            return step
+
+        return steps[-1]
 
     def _extract_content(self, last_step: Any) -> str:
         """Extract a human-readable content string from the last step output."""
@@ -210,7 +261,7 @@ class AgentRunner:
         if isinstance(output, dict):
             if "answer" in output and output["answer"]:
                 return str(output["answer"])
-            if "message" in output and output["message"]:
+            if "message" in output and output["message"] and not self._is_memory_ack(output):
                 return str(output["message"])
             if "body" in output:
                 body = output.get("body")
@@ -223,6 +274,13 @@ class AgentRunner:
         if isinstance(output, str):
             return output
         return json.dumps(output, indent=2)
+
+    def _is_memory_ack(self, output: Any) -> bool:
+        """Return True if output is a memory acknowledgement rather than user-facing data."""
+        if not isinstance(output, dict):
+            return False
+        message = str(output.get("message", "")).lower()
+        return message.startswith("stored value at key")
 
     def _derive_source(self, tools_used: list[str]) -> str:
         """Derive final output source label."""
@@ -337,3 +395,16 @@ class AgentRunner:
         except Exception as e:
             # Don't fail the execution if history save fails
             logger.error(f"Failed to save execution to history: {str(e)}")
+
+    def _emit_event(
+        self,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+        event: Dict[str, Any],
+    ) -> None:
+        """Emit event to callback if provided."""
+        if not event_callback:
+            return
+        try:
+            event_callback(event)
+        except Exception as exc:
+            logger.debug("Event callback error: %s", str(exc))

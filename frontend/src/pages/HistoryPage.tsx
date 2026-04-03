@@ -28,6 +28,24 @@ export function HistoryPage({ onBack, preselectedExecutionId }: { onBack: () => 
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
 
+  const handleDelete = async (executionId: string) => {
+    const confirmed = window.confirm('Delete this execution from history? This cannot be undone.');
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiClient.deleteExecutionHistory(executionId);
+      if (selectedExecution?.execution_id === executionId) {
+        setSelectedExecution(null);
+      }
+      await loadHistory();
+      await loadStats();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete execution');
+    }
+  };
+
   useEffect(() => {
     loadHistory();
     loadStats();
@@ -146,6 +164,13 @@ export function HistoryPage({ onBack, preselectedExecutionId }: { onBack: () => 
             className="mb-6 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition"
           >
             ← Back to History
+          </button>
+
+          <button
+            onClick={() => handleDelete(selectedExecution.execution_id)}
+            className="mb-6 ml-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+          >
+            Delete Execution
           </button>
 
           <div className="bg-white rounded-lg shadow-lg p-8">
@@ -359,6 +384,12 @@ export function HistoryPage({ onBack, preselectedExecutionId }: { onBack: () => 
                           className="text-blue-600 hover:text-blue-800 font-semibold transition"
                         >
                           View
+                        </button>
+                        <button
+                          onClick={() => handleDelete(execution.execution_id)}
+                          className="ml-4 text-red-600 hover:text-red-800 font-semibold transition"
+                        >
+                          Delete
                         </button>
                       </td>
                     </tr>

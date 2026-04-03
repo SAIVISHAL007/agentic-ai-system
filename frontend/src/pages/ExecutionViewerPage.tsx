@@ -5,12 +5,13 @@
  */
 
 import React from 'react';
-import type { ExecuteResponse } from '../types/api';
+import type { ExecuteResponse, StreamProgressEvent } from '../types/api';
 
 interface ExecutionViewerPageProps {
   execution: ExecuteResponse | null;
   isLoading: boolean;
   error: string | null;
+  progressEvents: StreamProgressEvent[];
   onReset: () => void;
 }
 
@@ -18,6 +19,7 @@ export const ExecutionViewerPage: React.FC<ExecutionViewerPageProps> = ({
   execution,
   isLoading,
   error,
+  progressEvents,
   onReset,
 }) => {
   if (isLoading) {
@@ -28,6 +30,34 @@ export const ExecutionViewerPage: React.FC<ExecutionViewerPageProps> = ({
             <div className="flex-column-center gap-md">
               <span className="spinner"></span>
               <p>Planning and executing steps...</p>
+              {progressEvents.length > 0 && (
+                <div className="steps-container mt-lg" style={{ width: '100%' }}>
+                  <h3>Live Timeline</h3>
+                  <div className="steps-list">
+                    {progressEvents.map((event, index) => (
+                      <div key={index} className="step-card">
+                        <div className="step-header">
+                          <div className="step-number">
+                            <span>
+                              {event.step_number ? `Step ${event.step_number}` : 'System'}
+                            </span>
+                          </div>
+                          <div className="step-tool">
+                            <strong>{event.type}</strong>
+                            {event.tool_name && <> • <code>{event.tool_name}</code></>}
+                          </div>
+                        </div>
+                        {(event.description || event.error) && (
+                          <div className="step-body">
+                            {event.description && <p>{event.description}</p>}
+                            {event.error && <p className="error-text">{event.error}</p>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

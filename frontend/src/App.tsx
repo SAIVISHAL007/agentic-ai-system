@@ -6,7 +6,13 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { ExecuteRequest, ExecuteResponse, ExecutionState, HistorySummary } from './types/api';
+import type {
+  ExecuteRequest,
+  ExecuteResponse,
+  ExecutionState,
+  HistorySummary,
+  StreamProgressEvent,
+} from './types/api';
 import { apiClient } from './services/apiClient';
 import { GoalInputPage } from './pages/GoalInputPage';
 import { ExecutionViewerPage } from './pages/ExecutionViewerPage';
@@ -23,6 +29,7 @@ interface AppState {
   sidebarOpen: boolean;
   historyItems: HistorySummary[];
   historyLoading: boolean;
+  streamEvents: StreamProgressEvent[];
   preselectedExecutionId?: string;
 }
 
@@ -35,11 +42,12 @@ function App() {
     sidebarOpen: false,
     historyItems: [],
     historyLoading: false,
+    streamEvents: [],
   });
 
   /**
    * Handle goal submission
-   * POST to backend and show execution viewer
+   * POST to backend and show execution viewer with streaming progress
    */
   const handleGoalSubmit = async (request: ExecuteRequest) => {
     setState((prev) => ({
@@ -47,16 +55,34 @@ function App() {
       executionState: 'loading',
       error: null,
       currentView: 'execution',
+      streamEvents: [],
     }));
 
     try {
-      const response = await apiClient.executeGoal(request);
-      setState((prev) => ({
-        ...prev,
-        execution: response,
-        executionState: 'success',
-        error: null,
-      }));
+      // All goals use streaming endpoint for consistent agentic execution
+      await apiClient.executeGoalStream(request, {
+          onProgress: (event) => {
+            setState((prev) => ({
+              ...prev,
+              streamEvents: [...prev.streamEvents, event].slice(-50),
+            }));
+          },
+          onCompleted: (response: ExecuteResponse) => {
+            setState((prev) => ({
+              ...prev,
+              execution: response,
+              executionState: 'success',
+              error: null,
+            }));
+          },
+          onError: (message: string) => {
+            setState((prev) => ({
+              ...prev,
+              executionState: 'error',
+              error: message,
+            }));
+          },
+        });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setState((prev) => ({
@@ -78,6 +104,7 @@ function App() {
       executionState: 'idle',
       error: null,
       sidebarOpen: false,
+      streamEvents: [],
     }));
   };
 
@@ -183,6 +210,7 @@ function App() {
                 execution={state.execution}
                 isLoading={state.executionState === 'loading'}
                 error={state.error}
+                progressEvents={state.streamEvents}
                 onReset={handleReset}
               />
 

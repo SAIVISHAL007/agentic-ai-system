@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from app.api.routes import router
 from app.tools import initialize_tools
 from app.core.logging import logger
+from app.core.config import settings
+from app.core.security import APISecurityMiddleware
 
 # Initialize tools on startup
 initialize_tools()
@@ -13,6 +15,11 @@ app = FastAPI(
     description="Production-style agentic AI system with planning and execution",
     version="0.1.0"
 )
+
+# Add optional API auth/rate-limiting middleware only when enabled.
+if settings.API_AUTH_ENABLED or settings.RATE_LIMIT_ENABLED:
+    app.add_middleware(APISecurityMiddleware)
+    logger.info("API security middleware enabled")
 
 # Include API routes
 app.include_router(router)

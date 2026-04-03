@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 from app.tools.base import BaseTool, ToolOutput
 from app.llm.groq_client import get_llm_client
+from app.core.config import settings
 from app.core.logging import logger
 
 
@@ -65,7 +66,11 @@ class ReasoningTool(BaseTool):
                 {"role": "user", "content": user_prompt},
             ]
 
-            response = self.llm.call(messages, temperature=0.3)
+            response = self.llm.call(
+                messages,
+                temperature=0.3,
+                max_tokens=settings.LLM_REASONING_MAX_TOKENS,
+            )
             answer = response.content.strip()
 
             if answer:

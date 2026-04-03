@@ -1,11 +1,14 @@
 """Planner agent for breaking goals into executable steps."""
 
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote_plus
+import re
 
 from app.llm.groq_client import get_llm_client, BaseLLMClient
 from app.tools.base import tool_registry
 from app.schemas.request_response import ExecutionStep
 from app.agents.validator import ToolInputValidator
+from app.core.config import settings
 from app.core.logging import logger
 
 
@@ -59,12 +62,17 @@ class PlannerAgent:
         ]
         
         logger.debug(f"Planning goal: {goal}")
-        response = self.llm_client.call(messages, temperature=0.3)  # Lower temp for consistency
+        response = self.llm_client.call(
+            messages,
+            temperature=0.3,
+            max_tokens=settings.LLM_PLANNER_MAX_TOKENS,
+        )  # Lower temp for consistency
         plan_text = response.content
         
         # Parse LLM response into ExecutionStep objects
         steps = self._parse_plan(plan_text)
-        steps = self._validate_and_repair_steps(goal, context, steps)
+        steps = self._validate_and_repair_steps(goal, context, steps, intent)
+        steps = self._ensure_user_facing_final_step(goal, intent, steps)
         
         # CRITICAL: Enforce intent requirements
         self._enforce_intent_requirements(steps, intent, goal)
@@ -294,8 +302,17 @@ Generate the plan now:"""
         goal: str,
         context: Optional[Dict[str, Any]],
         steps: List[ExecutionStep],
+        intent: str,
     ) -> List[ExecutionStep]:
         """Validate and repair step inputs against tool required fields."""
+        if intent in {"tool_required", "mixed"} and not self._has_non_reasoning_tool(steps):
+            heuristic_steps = self._build_heuristic_live_data_steps(goal, context or {})
+            if heuristic_steps:
+                logger.warning(
+                    "Planner produced reasoning-only plan for tool-required goal; replacing with heuristic live-data plan"
+                )
+                steps = heuristic_steps
+
         for step in steps:
             tool_name = step.tool_name.lower()
             tool = tool_registry.get(tool_name)
@@ -313,6 +330,132 @@ Generate the plan now:"""
             )
 
         return steps
+
+    def _has_non_reasoning_tool(self, steps: List[ExecutionStep]) -> bool:
+        return any(step.tool_name.lower() != "reasoning" for step in steps)
+
+    def _build_heuristic_live_data_steps(
+        self,
+        goal: str,
+        context: Dict[str, Any],
+    ) -> List[ExecutionStep]:
+        """Build deterministic tool steps for common live-data goals."""
+        goal_text = goal.lower()
+
+        if any(keyword in goal_text for keyword in ["bitcoin", "btc", "crypto price", "current price", "current bitcoin", "price of bitcoin"]):
+            currencies = self._extract_currencies(goal_text) or ["usd"]
+            return [
+                ExecutionStep(
+                    step_number=1,
+                    description="Fetch Bitcoin price via CoinGecko API",
+                    tool_name="http",
+                    input_data={
+                        "method": "GET",
+                        "url": f"https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies={','.join(currencies)}",
+                    },
+                    reasoning="Use CoinGecko for current Bitcoin pricing data.",
+                )
+            ]
+
+        if "weather" in goal_text:
+            location = self._extract_location(goal_text, context) or "London"
+            return [
+                ExecutionStep(
+                    step_number=1,
+                    description=f"Fetch current weather for {location} via wttr.in",
+                    tool_name="http",
+                    input_data={
+                        "method": "GET",
+                        "url": f"https://wttr.in/{quote_plus(location)}?format=j1",
+                    },
+                    reasoning="Use a public weather endpoint to get live conditions.",
+                )
+            ]
+
+        if "github" in goal_text and ("repo" in goal_text or "repository" in goal_text):
+            owner, repo = self._extract_github_repo(goal, context)
+            if owner and repo:
+                return [
+                    ExecutionStep(
+                        step_number=1,
+                        description=f"Fetch GitHub repository metadata for {owner}/{repo}",
+                        tool_name="http",
+                        input_data={
+                            "method": "GET",
+                            "url": f"https://api.github.com/repos/{owner}/{repo}",
+                        },
+                        reasoning="Use the GitHub API to retrieve live repository metadata.",
+                    )
+                ]
+
+            if "search" in goal_text:
+                query = self._extract_github_search_query(goal, context)
+                if query:
+                    return [
+                        ExecutionStep(
+                            step_number=1,
+                            description="Search GitHub repositories via API",
+                            tool_name="http",
+                            input_data={
+                                "method": "GET",
+                                "url": f"https://api.github.com/search/repositories?q={quote_plus(query)}&sort=stars",
+                            },
+                            reasoning="Use the GitHub search API to fetch live repository results.",
+                        )
+                    ]
+
+        return []
+
+    def _extract_currencies(self, goal_text: str) -> List[str]:
+        currencies: List[str] = []
+        for currency in ["usd", "inr", "eur", "gbp", "aud", "cad"]:
+            if currency in goal_text and currency not in currencies:
+                currencies.append(currency)
+        return currencies
+
+    def _extract_location(self, goal_text: str, context: Dict[str, Any]) -> Optional[str]:
+        for key in ("location", "city", "place"):
+            value = context.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        match = re.search(r"(?:in|for|at)\s+([A-Za-z][A-Za-z\s-]{1,40})", goal_text)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    def _extract_github_repo(self, goal: str, context: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+        owner = context.get("owner") if isinstance(context.get("owner"), str) else None
+        repo = context.get("repo") if isinstance(context.get("repo"), str) else None
+
+        if owner and repo:
+            return owner.strip(), repo.strip()
+
+        match = re.search(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", goal, re.IGNORECASE)
+        if match:
+            return match.group(1), match.group(2)
+
+        match = re.search(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", goal)
+        if match:
+            return match.group(1), match.group(2)
+
+        return None, None
+
+    def _extract_github_search_query(self, goal: str, context: Dict[str, Any]) -> Optional[str]:
+        for key in ("query", "search", "topic"):
+            value = context.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        match = re.search(r"for\s+topic\s+\"?([^\"\n]+)\"?", goal, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        match = re.search(r"for\s+([A-Za-z0-9_.-]+)", goal, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        return None
 
     def _repair_tool_input(self, goal: str, tool_name: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Attempt to repair missing required fields using the goal text."""
@@ -374,6 +517,49 @@ Generate the plan now:"""
                     f"but plan includes external tools: {external_tools}. "
                     f"This may indicate misclassification. Continuing anyway."
                 )
+
+    def _ensure_user_facing_final_step(
+        self,
+        goal: str,
+        intent: str,
+        steps: List[ExecutionStep],
+    ) -> List[ExecutionStep]:
+        """Ensure final output is user-facing for non-trivial workflows.
+
+        For mixed/tool_required plans that end with storage or raw HTTP fetch,
+        append a final reasoning step that summarizes grounded outputs.
+        """
+        if not steps:
+            return steps
+
+        if intent == "reasoning_only":
+            return steps
+
+        last_tool = steps[-1].tool_name.lower()
+        has_reasoning = any(step.tool_name.lower() == "reasoning" for step in steps)
+
+        if last_tool == "reasoning":
+            return steps
+
+        # Add a final reasoning step to synthesize the final answer for users.
+        summary_step = ExecutionStep(
+            step_number=len(steps) + 1,
+            description="Internal reasoning: Generate final user-facing answer from gathered tool outputs",
+            tool_name="reasoning",
+            input_data={
+                "question": f"Provide the final answer for this goal using retrieved tool data: {goal}. Focus on the actual outcome, not storage acknowledgements.",
+                "context": "Use grounded outputs from prior steps. Summarize the result directly for the user.",
+            },
+            reasoning=(
+                "Final step converts intermediate tool outputs into a direct answer so the "
+                "execution result is user-facing and not an internal storage acknowledgement."
+            ),
+        )
+
+        if not has_reasoning or last_tool in {"memory", "http"}:
+            steps.append(summary_step)
+
+        return steps
 
     def _has_value(self, value: Any) -> bool:
         """Return True when a value is non-empty and usable."""

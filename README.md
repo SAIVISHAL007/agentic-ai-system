@@ -1,598 +1,276 @@
 # Agentic AI Execution System
 
-A production-grade agentic AI system that autonomously plans and executes multi-step tasks using available tools. Built with Python 3.11, FastAPI, and React.
+A production-style agentic execution system that takes a high-level goal, plans tool-usable steps, executes them, and returns a full step-by-step audit trail.
 
-## What is This? (Not a Chatbot!)
+Built with Python 3.11, FastAPI, React, and TypeScript.
 
-This is an **Agentic AI System** — not a conversational chatbot. Here's the difference:
+## What This Project Is
 
-**Traditional Chatbot (Like ChatGPT):**
-- You ask → It responds
-- Single-turn conversation
-- No autonomous action
+This project is an execution-oriented agent backend and observability UI, not a chat interface.
 
-**Agentic AI System (This Project):**
-- You give a goal → It plans steps → It executes with tools → Returns results
-- Multi-step autonomous execution
-- Takes actions via tools (API calls, data storage, computations)
-- Full audit trail of every step
+Flow:
 
-**Example:**
-- ❌ Chatbot: "Tell me about Python" → Responds with text
-- ✅ Agentic: "Summarize Python" → Plans a reasoning-only step when no external data is needed → Returns structured result with audit trail
+1. User submits a goal.
+2. Planner generates ordered execution steps.
+3. Validator checks and repairs tool input against schema.
+4. Executor runs tools step-by-step.
+5. API returns structured final result plus full trace.
 
-Reasoning-only steps are supported but are a secondary fallback when no external tools apply.
-This system never fabricates external data; if live data is required, it will attempt tool execution and fail safely when APIs are unavailable.
-Every execution returns a structured final result with a clear source and confidence level.
+## What It Can Do Today
+
+- Plan and execute multi-step tasks using registered tools.
+- Validate and auto-repair planned tool inputs before execution.
+- Enforce schema validation in executor (invalid input is blocked).
+- Call live external APIs through `http` tool.
+- Store and retrieve intermediate values through `memory` tool.
+- Use `reasoning` tool for non-live explanatory tasks.
+- Persist execution history via pluggable backend (`jsonl` or `sqlite`).
+- Show execution timeline and history in frontend dashboard.
+- Stream planning/execution progress events from backend to frontend.
+- Run a concrete business workflow endpoint for GitHub repository insights.
+
+## Why This Is More Than "LLM + Wrapper"
+
+This repository enforces clear boundaries:
+
+- Planning: [app/agents/planner.py](app/agents/planner.py)
+- Validation/repair: [app/agents/validator.py](app/agents/validator.py)
+- Execution: [app/agents/executor.py](app/agents/executor.py)
+- Tool contracts/registry: [app/tools/base.py](app/tools/base.py)
+- API orchestration: [app/agents/runner.py](app/agents/runner.py)
+
+Hard checks in the flow:
+
+- Planner output is parsed into typed execution steps.
+- Tool inputs are validated and repaired before executor receives them.
+- Executor validates input schema again before running tool logic.
+- Failures are surfaced as structured execution failures, not hidden text.
+- Every step is recorded with input, output, success, and error fields.
 
 ## Architecture
 
-```
-User Goal
-    ↓
-┌─────────────────────────────────────────┐
-│     Frontend (React + TypeScript)      │
-│   - Goal Input                          │
-│   - Execution Viewer (Real-time)       │
-│   - Result Panel                        │
-└──────────────┬──────────────────────────┘
-               │ HTTP POST /api/execute
-               ↓
-┌─────────────────────────────────────────┐
-│         FastAPI Backend                 │
-└──────────────┬──────────────────────────┘
-               ↓
-┌─────────────────────────────────────────┐
-│        AgentRunner (Orchestrator)       │
-└──────────────┬──────────────────────────┘
-               │
-    ┌──────────┴──────────┐
-    ↓                     ↓
-┌─────────┐         ┌─────────┐
-│ Planner │         │Executor │
-│ Agent   │────────▶│ Agent   │
-└─────────┘         └────┬────┘
-   (LLM)                 │
-                         ↓
-              ┌──────────────────┐
-              │   Tool System    │
-              │ ┌──────────────┐ │
-              │ │ Reasoning Tool│ │  ← Reasoning-only fallback
-              │ └──────────────┘ │
-              │ ┌──────────────┐ │
-              │ │  HTTP Tool   │ │  ← API Calls
-              │ └──────────────┘ │
-              │ ┌──────────────┐ │
-              │ │ Memory Tool  │ │  ← State Storage
-              │ └──────────────┘ │
-              └──────────────────┘
-                       │
-                       ↓
-              ┌──────────────────┐
-              │ Execution Context│
-              │ (In-Memory Store)│
-              └──────────────────┘
+```text
+Goal Input (Frontend)
+    -> POST /api/execute
+FastAPI Router
+    -> AgentRunner
+       -> PlannerAgent
+       -> ToolInputValidator
+       -> ExecutorAgent
+          -> ToolRegistry
+             -> http
+             -> memory
+             -> reasoning
+       -> ExecutionContext + FinalResult
+       -> ExecutionHistoryStore (JSONL)
+Response
+    -> Execution timeline + result in frontend
 ```
 
-## Key Features
+## Concrete End-to-End Demo (Real)
 
-✅ **Autonomous Planning**: LLM breaks goals into executable steps  
-✅ **Tool-Based Execution**: Agents use tools (not generate code)  
-✅ **Full Observability**: Complete audit trail of every step  
-✅ **Error Handling**: Automatic retries with intelligent fallback  
-✅ **Real-Time UI**: Watch execution unfold step-by-step  
-✅ **Extensible**: Add new tools without changing core logic  
+Use case: fetch GitHub repository metadata, then summarize.
 
-## Quick Start
+Example request:
 
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+ (for frontend)
-- Groq API key (free at [console.groq.com](https://console.groq.com))
-
-### Backend Setup
-
-```bash
-# Clone repository
-git clone https://github.com/SAIVISHAL007/agentic-ai-system
-cd agentic-ai-system
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-echo "GROQ_API_KEY=your_api_key_here" > .env
-echo "LLM_PROVIDER=groq" >> .env
-echo "GROQ_MODEL=llama-3.3-70b-versatile" >> .env
-
-# Start backend
-uvicorn app.main:app --reload --port 8000
-```
-
-Backend will be at: http://localhost:8000  
-API docs at: http://localhost:8000/docs
-
-### Frontend Setup
-
-```bash
-# In a new terminal
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start dev server
-npm run dev
-```
-
-Frontend will be at: http://localhost:5173
-
-## Example Goals
-
-### ✅ Informational (Reasoning-Only, Fallback) Goals
-```json
-{"goal": "What is Python?"}
-{"goal": "Explain what an API is"}
-{"goal": "What is machine learning?"}
-```
-
-### ✅ API Data Fetching
 ```json
 {
-  "goal": "Fetch current Bitcoin price from CoinGecko API",
-  "context": {"currency": "usd"}
-}
-```
-
-### ✅ Multi-Step Workflows
-```json
-{
-  "goal": "Get GitHub repository info for python/cpython and store the star count",
-  "context": {"owner": "python", "repo": "cpython"}
-}
-```
-
-### ❌ Tasks This System Cannot Do
-- ❌ Browse the web (no browser automation)
-- ❌ Execute arbitrary Python code (uses predefined tools only)
-- ❌ Real-time data without APIs (LLM has knowledge cutoff)
-- ❌ File system operations (not implemented yet)
-
-## How It Works
-
-### 1. Planning Phase (PlannerAgent)
-- Receives your goal
-- Analyzes available tools
-- Calls LLM to generate ordered execution steps
-- Each step specifies: `tool_name`, `input_data`, `reasoning`
-- Classifies intent as `reasoning_only`, `tool_required`, or `mixed` (metadata only)
-
-### 2. Execution Phase (ExecutorAgent)
-- Executes steps sequentially
-- For each step:
-  - Loads tool from registry
-  - Calls `tool.execute()` with step inputs
-  - Records result (success/failure, output, error)
-  - Retries on failure (max 3 attempts)
-- Stops if any step fails after retries
-
-### 3. Result Storage
-- Complete execution history in `ExecutionContext`
-- Full audit trail: inputs, outputs, errors, retries
-- Accessible via execution_id
-- Always resolves a consistent final output object
-
-### 4. Frontend Display
-- Real-time execution viewer
-- Step-by-step progress
-- Input/output inspection
-- Error visualization
-
-## Available Tools
-
-### Tool Selection Decision Tree
-
-The system follows a strict decision tree to choose the appropriate tool:
-
-```
-1. Does the goal require CURRENT/LIVE/REAL-TIME data?
-   ├─ YES + Known Public API → Use HTTP Tool
-   └─ YES + Unknown API → Use Reasoning Tool + Explain limitation
-
-2. Does the goal ask to fetch from a SPECIFIC, KNOWN, PUBLIC API?
-   ├─ YES → Use HTTP Tool
-   └─ NO → Continue
-
-3. Is the goal asking for definitions, explanations, code generation, or analysis?
-   ├─ YES → Use Reasoning Tool (primary for knowledge-based tasks)
-   └─ NO → Continue
-
-4. Does the goal require storing/retrieving data across multiple steps?
-   ├─ YES → Use Memory Tool (+ other tools as needed)
-   └─ NO → Use Reasoning Tool (default)
-```
-
-**Important Principles:**
-- **Reasoning Tool** is the **PRIMARY tool** for all knowledge-based questions (not a fallback)
-- **HTTP Tool** is used ONLY when a specific, verified, public API is known
-- **Memory Tool** supports multi-step workflows by storing intermediate results
-- System NEVER fabricates external data; if API is unknown, reasoning tool explains the limitation clearly
-
----
-
-### 1. HTTP Tool (`http`)
-**Purpose**: Make HTTP requests to external APIs
-
-**When to use:**
-- Fetch current/live data from known public APIs (e.g., CoinGecko, GitHub API)
-- POST/PUT/DELETE operations to verified endpoints
-- Real-time data retrieval (stock prices, weather, news)
-
-**When NOT to use:**
-- Unknown or unverified API endpoints
-- APIs requiring complex authentication (unless credentials provided in context)
-- When no specific API is known for the requested data
-
-**Example:**
-```json
-{
-  "tool_name": "http",
-  "input_data": {
-    "method": "GET",
-    "url": "https://api.github.com/repos/python/cpython"
-  }
-}
-```
-
-### 2. Memory Tool (`memory`)
-**Purpose**: Store and retrieve intermediate data during execution
-
-**When to use:**
-- Multi-step workflows requiring state persistence
-- Passing data between execution steps
-- Temporary storage during complex workflows
-- Resolving placeholders like `{stored_key}` in subsequent steps
-
-**When NOT to use:**
-- Single-step goals with no intermediate data
-- Long-term persistent storage (this is in-memory only)
-
-**Example (Store):**
-```json
-{
-  "tool_name": "memory",
-  "input_data": {
-    "action": "store",
-    "key": "user_age",
-    "value": 25
-  }
-}
-```
-
-**Example (Retrieve):**
-```json
-{
-  "tool_name": "memory",
-  "input_data": {
-    "action": "retrieve",
-    "key": "user_age"
-  }
-}
-```
-
-### 3. Reasoning Tool (`reasoning`)
-**Purpose**: Answer knowledge-based questions using the LLM's training data
-
-**When to use (PRIMARY tool for these cases):**
-- Definitions, explanations, and conceptual questions
-- Code generation and technical tutorials
-- Summaries, analyses, and comparisons
-- Any question that does NOT require current/live external data
-- Fallback when HTTP tool fails but a best-effort answer is possible
-
-**When NOT to use:**
-- Questions requiring current/real-time data from external sources
-- Questions where specific API data is available and known
-
-**Example:**
-```json
-{
-  "tool_name": "reasoning",
-  "input_data": {
-    "question": "What is Python and how does it work?"
-  }
-}
-```
-
-## API Reference
-
-### POST /api/execute
-
-Execute a goal end-to-end.
-
-**Request:**
-```json
-{
-  "goal": "string - high-level goal description",
+  "goal": "Fetch details for github.com/python/cpython and summarize key metrics",
   "context": {
-    "optional_key": "optional_value"
+    "owner": "python",
+    "repo": "cpython"
   }
 }
 ```
 
-**Response:**
+Typical planned steps (shape):
+
+```json
+[
+  {
+    "step_number": 1,
+    "description": "Fetch repository metadata via API",
+    "tool_name": "http",
+    "input_data": {
+      "method": "GET",
+      "url": "https://api.github.com/repos/python/cpython"
+    }
+  },
+  {
+    "step_number": 2,
+    "description": "Summarize fetched repository data",
+    "tool_name": "reasoning",
+    "input_data": {
+      "question": "Summarize the repository metrics",
+      "context": "...tool output..."
+    }
+  }
+]
+```
+
+What is returned:
+
+- step-by-step `steps_completed`
+- per-step success/failure
+- final structured result (`success`, `content`, `source`, `confidence`, `execution_id`)
+- summary metrics (`tools_used`, `duration_ms`, failures)
+
+## Current API Endpoints
+
+Core execution:
+
+- `POST /api/execute`
+- `POST /api/execute/stream` (SSE lifecycle events)
+- `POST /api/workflows/github-repo-insights`
+- `GET /health`
+- `GET /`
+
+History endpoints:
+
+- `GET /api/history`
+- `GET /api/history/{execution_id}`
+- `GET /api/history/stats`
+
+Implementation reference: [app/api/routes.py](app/api/routes.py)
+
+## Response Shape (Current)
+
+`POST /api/execute` returns:
+
 ```json
 {
   "execution_id": "uuid",
   "goal": "string",
   "status": "completed|failed|partial",
   "intent": "reasoning_only|tool_required|mixed",
+  "decision_rationale": "string|null",
   "steps_completed": [
     {
       "step_number": 1,
-      "description": "Provide a reasoning-only explanation",
-      "tool_name": "reasoning",
+      "description": "string",
+      "tool_name": "http|memory|reasoning",
       "success": true,
-      "input": {"question": "What is Python?"},
-      "output": {
-        "answer": "Python is a high-level...",
-        "note": "Reasoning-only step; no external tools used"
-      },
+      "input": {},
+      "output": {},
       "error": null
     }
   ],
   "final_result": {
-    "content": "Python is a high-level...",
-    "source": "reasoning-only",
-    "confidence": "medium",
+    "success": true,
+    "content": "string|null",
+    "source": "string",
+    "confidence": 0.95,
+    "error": null,
     "execution_id": "uuid"
   },
   "execution_summary": {
-    "tools_used": ["reasoning"],
+    "tools_used": ["http", "reasoning"],
     "tool_failures": 0,
     "reasoning_steps": 1,
-    "duration_ms": 1234
+    "duration_ms": 1800
   },
   "error": null,
-  "timestamp": "2026-02-23T..."
+  "timestamp": "ISO-8601"
 }
 ```
 
-### GET /health
+Schemas: [app/schemas/request_response.py](app/schemas/request_response.py)
 
-Health check endpoint.
+## Frontend (Observability Dashboard)
 
-**Response:**
-```json
-{
-  "status": "ok",
-  "service": "agentic-ai-system"
-}
-```
+Frontend provides:
 
-## Project Structure
+- Goal input page
+- Execution timeline with step cards
+- Result panel
+- History list, filters, statistics, and detail view
 
-```
-app/
-├── core/               # Configuration and logging
-│   ├── config.py       # Environment settings
-│   └── logging.py      # Logger setup
-├── llm/                # LLM integrations
-│   └── groq_client.py  # Groq API client
-├── tools/              # Tool system
-│   ├── base.py         # BaseTool interface + registry
-│   ├── reasoning_tool.py # Reasoning-only tool
-│   ├── http_tool.py    # HTTP/API tool
-│   └── memory_tool.py  # State storage tool
-├── agents/             # Agent implementations
-│   ├── planner.py      # Planning agent
-│   ├── executor.py     # Execution agent
-│   └── runner.py       # Orchestrator
-├── memory/             # Execution state
-│   ├── schemas.py      # Data models
-│   └── vector_store.py # In-memory store
-├── schemas/            # API schemas
-│   └── request_response.py # Pydantic models
-├── api/                # FastAPI routes
-│   └── routes.py       # API endpoints
-└── main.py             # Application entry point
+Relevant files:
 
-frontend/
-├── src/
-│   ├── pages/
-│   │   ├── GoalInputPage.tsx
-│   │   └── ExecutionViewerPage.tsx
-│   ├── components/
-│   │   └── ResultPanel.tsx
-│   ├── services/
-│   │   └── apiClient.ts
-│   ├── types/
-│   │   └── api.ts
-│   └── App.tsx
-├── index.css           # Styles
-└── vite.config.ts      # Build config
-```
+- [frontend/src/pages/GoalInputPage.tsx](frontend/src/pages/GoalInputPage.tsx)
+- [frontend/src/pages/ExecutionViewerPage.tsx](frontend/src/pages/ExecutionViewerPage.tsx)
+- [frontend/src/components/ResultPanel.tsx](frontend/src/components/ResultPanel.tsx)
+- [frontend/src/pages/HistoryPage.tsx](frontend/src/pages/HistoryPage.tsx)
 
-## Extending: Add a New Tool
+Important honesty note:
 
-### Step 1: Create Tool Class
+- The UI now consumes SSE progress events from `/api/execute/stream`.
+- WebSocket transport is not implemented yet (SSE is currently used).
 
-```python
-# app/tools/my_tool.py
-from pydantic import BaseModel, Field
-from app.tools.base import BaseTool, ToolOutput
+## Tools (Current)
 
-class MyToolInput(BaseModel):
-    param1: str
-    param2: int = Field(default=10, description="Optional parameter")
+- `http`: external HTTP requests ([app/tools/http_tool.py](app/tools/http_tool.py))
+- `memory`: temporary key-value storage ([app/tools/memory_tool.py](app/tools/memory_tool.py))
+- `reasoning`: LLM reasoning/explanation ([app/tools/reasoning_tool.py](app/tools/reasoning_tool.py))
 
-class MyTool(BaseTool):
-    @property
-    def name(self) -> str:
-        return "my_tool"
-    
-    @property
-    def description(self) -> str:
-        return "What this tool does"
-    
-    @property
-    def input_schema(self) -> type[BaseModel]:
-        return MyToolInput
-    
-    def execute(self, **kwargs) -> ToolOutput:
-        input_data = MyToolInput(**kwargs)
-        try:
-            result = do_something(input_data.param1, input_data.param2)
-            return ToolOutput(success=True, result=result)
-        except Exception as e:
-            return ToolOutput(success=False, result=None, error=str(e))
-```
+Tool registry and contracts: [app/tools/base.py](app/tools/base.py), [app/tools/__init__.py](app/tools/__init__.py)
 
-### Step 2: Register Tool
+## Honest Scope and Limitations
 
-```python
-# In app/tools/__init__.py
-from app.tools.my_tool import MyTool
+Current limitations (intentional for this phase):
 
-def initialize_tools() -> ToolRegistry:
-    # ... existing registrations ...
-    if "my_tool" not in tool_registry:
-        tool_registry.register(MyTool())
-    return tool_registry
-```
+- Auth/rate limit are optional and disabled by default.
+- No multi-tenant isolation.
+- No distributed task queue.
+- No browser automation tool.
+- No filesystem tool.
+- No long-term semantic memory/vector DB yet.
+- History persistence is JSONL, not enterprise database.
 
-### Step 3: Use It!
-The planner will automatically see `my_tool` and can schedule it in execution plans.
+This is a strong production-style architecture and a real working system, but not a fully production-hardened platform yet.
 
-## Design Decisions
+## Optional Security Controls
 
-### Why Tool-Based (Not Code Generation)?
-- **Safety**: Controlled execution environment
-- **Auditability**: Every action is logged
-- **Reliability**: No syntax errors or runtime failures
-- **Extensibility**: Add capabilities without retraining
+These controls are implemented and can be enabled without code changes:
 
-### Why Sequential Execution?
-- **Simplicity**: Easier to debug and understand
-- **Dependencies**: Natural step ordering
-- **Observability**: Clear execution flow
-- **Upgradeable**: Can add parallel execution later
+- `API_AUTH_ENABLED=true` enables API key auth for `/api/*` routes.
+- `API_AUTH_TOKEN=<token>` expected via `X-API-Key` header.
+- `RATE_LIMIT_ENABLED=true` enables in-memory IP rate limiting.
+- `RATE_LIMIT_REQUESTS_PER_MINUTE=60` sets request quota.
+- `REQUIRE_TENANT_HEADER=true` requires `X-Tenant-ID` on `/api/*` routes.
+- `HISTORY_BACKEND=sqlite` enables sqlite persistence.
+- `HISTORY_SQLITE_PATH=./.execution_history/executions.db` configures sqlite file location.
 
-### Why In-Memory Storage?
-- **Phase 1 Focus**: No external dependencies
-- **Performance**: Fast for development/testing
-- **Upgradeable**: Interface supports vector DB swap
-- **Simplicity**: Easy to understand and maintain
+Defaults keep current behavior unchanged, preserving existing local performance and developer workflow.
 
-## Troubleshooting
-
-### Backend Issues
-
-**"GROQ_API_KEY is required"**
-```bash
-export GROQ_API_KEY=your_key_here
-```
-
-**"Tool 'X' not found"**
-- Check tool is registered in `app/tools/__init__.py`
-- Verify tool name is lowercase
-
-**Model Errors**
-- Ensure model name is current (check Groq deprecations)
-- Current working model: `llama-3.3-70b-versatile`
-
-### Frontend Issues
-
-**"Cannot connect to backend"**
-- Verify backend is running: `curl http://localhost:8000/health`
-- Check Vite proxy settings in `vite.config.ts`
-
-**TypeScript Errors**
-```bash
-cd frontend
-npm run build  # Check for type errors
-```
-
-## Testing
+## Quick Start
 
 ### Backend
+
 ```bash
-# Quick validation
-curl -X POST http://localhost:8000/api/execute \
-  -H "Content-Type: application/json" \
-  -d '{"goal":"What is Python?"}'
+git clone https://github.com/SAIVISHAL007/agentic-ai-system
+cd agentic-ai-system
+
+python -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+
+echo "GROQ_API_KEY=your_api_key_here" > .env
+echo "LLM_PROVIDER=groq" >> .env
+echo "GROQ_MODEL=llama-3.3-70b-versatile" >> .env
+
+uvicorn app.main:app --reload --port 8000
 ```
 
 ### Frontend
+
 ```bash
 cd frontend
-npm run build  # Validates TypeScript types
-npm run preview  # Test production build
+npm install
+npm run dev
 ```
 
-### End-to-End
-1. Start backend: `uvicorn app.main:app --port 8000`
-2. Start frontend: `cd frontend && npm run dev`
-3. Open http://localhost:5173
-4. Submit goal: "What is Python?"
-5. Watch execution unfold
+## Recommended Resume Pitch (Accurate)
 
-## Performance
+"Built an agentic execution system with strict planner-validator-executor separation, typed tool contracts, schema-aware plan repair, execution audit trail, and observability dashboard with persistent history endpoints."
 
-- **Planning**: ~2-3 seconds (LLM call)
-- **Execution**: Depends on tools used
-  - Reasoning tool: ~2-5 seconds
-  - HTTP tool: Network latency
-  - Memory tool: <100ms
-- **Total**: Most goals complete in <10 seconds
+## Suggested Next Improvements
 
-## Limitations & Future Work
+1. Add PostgreSQL persistence option for execution history.
+2. Add tenant-aware RBAC authorization layer (beyond API key).
+3. Add OpenTelemetry traces and metrics dashboards.
+4. Add more domain workflows (finance, support ops, DevOps automation).
+5. Extend CI with load-testing and security scans.
 
-### Current Limitations
-- No parallel execution (sequential only)
-- In-memory storage (resets on restart)
-- No browser automation
-- No file system operations
-- LLM knowledge cutoff applies
-
-### Planned Enhancements
-- Vector database integration (Chroma, Weaviate)
-- Parallel execution for independent steps
-- File system tool
-- Browser automation tool
-- Multi-agent collaboration
-- Long-term memory with embeddings
-- Docker deployment
-
-## License
-
-MIT License
-
-## Credits
-
-Built with:
-- **Backend**: Python 3.11, FastAPI, Pydantic
-- **LLM**: Groq API (llama-3.3-70b-versatile)
-- **Frontend**: React 18, TypeScript, Vite
-- **Styling**: Plain CSS (no frameworks)
-
----
-
-**Why This Project Matters for Recruitment:**
-
-This demonstrates:
-- ✅ Clean architecture (separation of concerns)
-- ✅ Production-grade error handling
-- ✅ Full-stack development (Python + React + TypeScript)
-- ✅ AI/LLM integration
-- ✅ Real-world problem solving
-- ✅ Professional documentation
-- ✅ Extensible design patterns
-
-**Not just a chatbot clone — a real agentic AI execution system!**
-
+Current CI pipeline is available at `.github/workflows/ci.yml` and runs backend tests plus frontend lint/build.

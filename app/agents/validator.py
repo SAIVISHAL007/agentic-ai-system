@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
+from app.core.config import settings
 from app.core.logging import logger
 from app.llm.groq_client import BaseLLMClient, get_llm_client
 from app.tools.base import tool_registry, BaseTool
@@ -138,7 +139,11 @@ class ToolInputValidator:
             {"role": "user", "content": user_prompt},
         ]
 
-        response = self.llm_client.call(messages, temperature=0.2)
+        response = self.llm_client.call(
+            messages,
+            temperature=0.2,
+            max_tokens=settings.LLM_VALIDATOR_MAX_TOKENS,
+        )
         try:
             parsed = self.llm_client.parse_json(response.content)
         except Exception as exc:

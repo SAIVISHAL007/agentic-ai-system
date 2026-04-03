@@ -1,6 +1,6 @@
 """Executor agent for executing planned steps."""
 
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 from pydantic import ValidationError
 from app.schemas.request_response import ExecutionStep
 from app.tools.base import tool_registry
@@ -25,6 +25,7 @@ class ExecutorAgent:
         steps: List[ExecutionStep],
         execution_context: ExecutionContext,
         max_retries: int = 3,
+        step_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> ExecutionContext:
         """
         Execute a list of planned steps.
@@ -40,6 +41,12 @@ class ExecutorAgent:
         logger.info(f"Starting execution of {len(steps)} steps")
         
         for step in steps:
+            self._emit_step_event(step_callback, {
+                "type": "step_started",
+                "step_number": step.step_number,
+                "description": step.description,
+                "tool_name": step.tool_name.lower(),
+            })
             success = False
             retry_count = 0
             last_error = None
@@ -104,10 +111,25 @@ class ExecutorAgent:
                     
                     if result.success:
                         logger.info(f"Step {step.step_number} succeeded")
+                        self._emit_step_event(step_callback, {
+                            "type": "step_completed",
+                            "step_number": step.step_number,
+                            "description": step.description,
+                            "tool_name": tool_name,
+                            "success": True,
+                        })
                         success = True
                     else:
                         last_error = result.error or "Tool returned no error details"
                         logger.warning(f"Step {step.step_number} failed: {result.error}")
+                        self._emit_step_event(step_callback, {
+                            "type": "step_retry",
+                            "step_number": step.step_number,
+                            "description": step.description,
+                            "tool_name": tool_name,
+                            "retry_count": retry_count + 1,
+                            "error": last_error,
+                        })
                         retry_count += 1
                 
                 except Exception as e:
@@ -130,6 +152,14 @@ class ExecutorAgent:
                 )
                 execution_context.add_step(memory_step)
                 execution_context.fail(f"Tool execution failed: {error_msg}")
+                self._emit_step_event(step_callback, {
+                    "type": "step_completed",
+                    "step_number": step.step_number,
+                    "description": step.description,
+                    "tool_name": step.tool_name.lower(),
+                    "success": False,
+                    "error": error_details,
+                })
                 return execution_context  # Stop immediately on tool failure
         
         # All steps completed successfully
@@ -154,6 +184,19 @@ class ExecutorAgent:
             execution_context.complete(last_output)
         
         return execution_context
+
+    def _emit_step_event(
+        self,
+        step_callback: Optional[Callable[[Dict[str, Any]], None]],
+        event: Dict[str, Any],
+    ) -> None:
+        """Emit step-level event to callback if provided."""
+        if not step_callback:
+            return
+        try:
+            step_callback(event)
+        except Exception as exc:
+            logger.debug("Step callback error: %s", str(exc))
     
     def _get_max_attempts(self, tool_name: str) -> int:
         """Get max retry attempts per tool type.

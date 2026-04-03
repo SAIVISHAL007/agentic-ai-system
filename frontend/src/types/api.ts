@@ -56,6 +56,24 @@ export interface ExecuteResponse {
   timestamp: string;
 }
 
+export interface StreamProgressEvent {
+  type:
+    | 'planning_started'
+    | 'plan_created'
+    | 'step_started'
+    | 'step_retry'
+    | 'step_completed'
+    | 'execution_completed'
+    | 'execution_failed';
+  step_number?: number;
+  description?: string;
+  tool_name?: string;
+  success?: boolean;
+  error?: string;
+  retry_count?: number;
+  step_count?: number;
+}
+
 /**
  * API error response
  */
@@ -81,6 +99,7 @@ export interface HistoryStep {
 
 export interface HistoryRecord {
   execution_id: string;
+  tenant_id?: string | null;
   goal: string;
   intent: string | null;
   status: string;
@@ -96,6 +115,7 @@ export interface HistoryRecord {
 
 export interface HistorySummary {
   execution_id: string;
+  tenant_id?: string | null;
   goal: string;
   intent: string | null;
   status: string;
@@ -115,6 +135,11 @@ export interface HistoryDetailResponse {
   execution: HistoryRecord;
 }
 
+export interface DeleteHistoryResponse {
+  success: boolean;
+  execution_id: string;
+}
+
 export interface HistoryStatsResponse {
   total_executions: number;
   successful: number;
@@ -122,4 +147,17 @@ export interface HistoryStatsResponse {
   tools_used: string[];
   avg_duration_ms: number;
   intents: Record<string, number>;
+}
+
+export interface GitHubRepoInsightsRequest {
+  owner: string;
+  repo: string;
+}
+
+export interface GitHubRepoInsightsResponse {
+  success: boolean;
+  source: string;
+  execution_type: string;
+  insights?: Record<string, unknown>;
+  error?: string;
 }
