@@ -2,7 +2,9 @@
 
 A production-style agentic execution system that takes a high-level goal, plans tool-usable steps, executes them, and returns a full step-by-step audit trail.
 
-Built with Python 3.11, FastAPI, React, and TypeScript.
+**Tech Stack**: Python 3.12 • FastAPI • React 18 • TypeScript • Google Gemini 3.1 Flash
+
+**Key Characteristic**: Strict separation of planner → validator → executor with deterministic audit trails and schema-enforced tool contracts.
 
 ## What This Project Is
 
@@ -46,6 +48,27 @@ Hard checks in the flow:
 - Executor validates input schema again before running tool logic.
 - Failures are surfaced as structured execution failures, not hidden text.
 - Every step is recorded with input, output, success, and error fields.
+
+## Production-Ready Design Patterns
+
+**Deterministic Model Identity** (Prevents LLM Hallucination):
+- Model name and provider are answered from stored configuration, not delegated to the LLM
+- New `GET /api/model-info` endpoint returns provider/model without LLM queries
+- Eliminates false answers like "I'm GPT-4o" when running Gemini
+- Implementation: [app/tools/reasoning_tool.py](app/tools/reasoning_tool.py#L130-L144), [app/core/config.py](app/core/config.py#L66-L70)
+
+**Single LLM Provider (Gemini)** (Production Focus):
+- Recently consolidated from multi-provider abstraction (removed Groq, OpenAI support)
+- Uses Google Gemini 3.1 Flash Lite for cost-effective quality
+- Fallback: Gemini 2.0 Flash if primary unavailable
+- Reduces code complexity, improves testability, enforces consistent behavior
+- Configuration locked at startup to prevent provider mismatch at runtime
+
+**Schema-Enforced Tool Contracts**:
+- Every tool has a typed input schema (Pydantic)
+- Planner repairs invalid step inputs before executor receives them
+- Executor validates again and rejects mismatches
+- Double validation catches both planner and tool errors
 
 ## Architecture
 
@@ -119,17 +142,18 @@ What is returned:
 
 Core execution:
 
-- `POST /api/execute`
-- `POST /api/execute/stream` (SSE lifecycle events)
-- `POST /api/workflows/github-repo-insights`
-- `GET /health`
-- `GET /`
+- `POST /api/execute` - Execute goal with plan, validate, execute
+- `POST /api/execute/stream` - Same as above with SSE lifecycle events
+- `POST /api/workflows/github-repo-insights` - Concrete business workflow example
+- `GET /api/model-info` - Deterministic provider/model info (no LLM call)
+- `GET /health` - Health check
+- `GET /` - Root
 
 History endpoints:
 
-- `GET /api/history`
-- `GET /api/history/{execution_id}`
-- `GET /api/history/stats`
+- `GET /api/history` - List execution history (paginated)
+- `GET /api/history/{execution_id}` - Single execution details
+- `GET /api/history/stats` - History statistics
 
 Implementation reference: [app/api/routes.py](app/api/routes.py)
 
@@ -246,12 +270,14 @@ source venv/bin/activate
 
 pip install -r requirements.txt
 
+# Create .env with Gemini API key (from https://aistudio.google.com)
 echo "GEMINI_API_KEY=your_api_key_here" > .env
-echo "LLM_PROVIDER=gemini" >> .env
 echo "GEMINI_MODEL=gemini-3.1-flash-lite-preview" >> .env
 
 uvicorn app.main:app --reload --port 8000
 ```
+
+Visit `http://localhost:8000` for health check, or use `/api/execute` endpoint.
 
 ### Frontend
 
@@ -261,16 +287,48 @@ npm install
 npm run dev
 ```
 
+Visit `http://localhost:5173` (Vite dev server).
+
+### Quick Test
+
+```bash
+# Test deterministic model-info endpoint
+curl http://localhost:8000/api/model-info
+
+# Execute a reasoning-only goal
+curl -X POST http://localhost:8000/api/execute \
+  -H "Content-Type: application/json" \
+  -d '{"goal":"List the top 3 Python packages by download count"}' 
+```
+
 ## Recommended Resume Pitch (Accurate)
 
-"Built an agentic execution system with strict planner-validator-executor separation, typed tool contracts, schema-aware plan repair, execution audit trail, and observability dashboard with persistent history endpoints."
+> "Built a production-style agentic execution system with strict planner-validator-executor separation, Pydantic-based tool schema contracts, deterministic audit trails, and structured error handling. Implemented anti-hallucination patterns (config-based model identity), schema-aware plan repair, persistent history, and observability dashboard. Recently consolidated LLM provider to Gemini for focus and reduced complexity. All decisions defend against production failure modes: schema validation (double-checked), planning failures (deterministic), execution failures (step-level structured errors), and LLM hallucination (config-not-LLM for identity). Deployed with optional security (API auth, rate limiting, tenant isolation)."
+
+**Concrete Evidence**:
+- Multi-step planning and execution with structured audit trails
+- Tool schema validation (Pydantic) enforced at planning and execution boundaries
+- Deterministic model-identity answering prevents LLM hallucination
+- Persistent execution history with filtering, search, and statistics
+- Frontend observability dashboard with real-time progress (SSE)
+- GitHub API workflow demonstrates real tool integration
+- Starter framework for custom domain workflows
 
 ## Suggested Next Improvements
 
-1. Add PostgreSQL persistence option for execution history.
-2. Add tenant-aware RBAC authorization layer (beyond API key).
-3. Add OpenTelemetry traces and metrics dashboards.
-4. Add more domain workflows (finance, support ops, DevOps automation).
-5. Extend CI with load-testing and security scans.
+**Near-term (Low Risk)**:
+1. Add more domain-specific workflow templates (finance, support automation, DevOps).
+2. Implement telemetry: OpenTelemetry traces, metrics, and observability dashboards.
+3. Add PostgreSQL persistence option for execution history (beyond JSONL/SQLite).
+4. Extend CI with load testing and security scanning.
 
-Current CI pipeline is available at `.github/workflows/ci.yml` and runs backend tests plus frontend lint/build.
+**Medium-term (Architectural)**:
+1. Implement RBAC authorization layer (beyond API key auth).
+2. Add multi-tenant context propagation across execution.
+3. Extend tool registry: file I/O, browser automation, database connectors.
+
+**Optional High-Value**:
+1. Add Gemini model fallback logic for quota/rate-limit resilience.
+2. Implement long-term semantic memory with vector DB (Chroma integration ready).
+
+Current CI/CD pipeline: `.github/workflows/ci.yml` (backend tests, frontend lint/build, type checking)
