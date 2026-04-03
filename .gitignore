@@ -46,3 +46,6 @@ Thumbs.db
 
 # Project specific
 *.log
+
+# Auto-generated
+.execution_history/
