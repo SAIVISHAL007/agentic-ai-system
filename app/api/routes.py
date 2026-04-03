@@ -9,11 +9,12 @@ from typing import Optional
 from sse_starlette.sse import EventSourceResponse
 from app.schemas.request_response import ExecuteRequest, ExecuteResponse, StepResult
 from app.schemas.history import HistoryListResponse, HistoryDetailResponse, HistoryStatsResponse
-from app.schemas.workflows import GitHubRepoInsightsRequest, GitHubRepoInsightsResponse
+from app.schemas.workflows import GitHubRepoInsightsRequest, GitHubRepoInsightsResponse, SupportTicketTriageRequest, SupportTicketTriageResponse
 from app.agents.runner import AgentRunner
 from app.memory.schemas import ExecutionContext
 from app.storage.execution_history import get_history_store
 from app.workflows.github_repo_insights import run_github_repo_insights
+from app.workflows.support_ticket_triage import run_support_ticket_triage
 from app.core.config import settings
 from app.core.logging import logger
 
@@ -336,6 +337,53 @@ def github_repo_insights_workflow(request: GitHubRepoInsightsRequest) -> GitHubR
         logger.error("GitHub insights workflow failed: %s", str(exc))
         return GitHubRepoInsightsResponse(
             success=False,
+            error=str(exc),
+        )
+
+
+@router.post("/workflows/support-ticket-triage", response_model=SupportTicketTriageResponse)
+def support_ticket_triage_workflow(request: SupportTicketTriageRequest) -> SupportTicketTriageResponse:
+    """
+    Run multi-step support ticket triage workflow.
+    
+    Demonstrates real business workflow:
+    1. Analyze ticket category and severity
+    2. Search knowledge base for similar issues
+    3. Look up customer history
+    4. Draft a response
+    5. Return full audit trail with reasoning
+    
+    Example:
+        {
+            "ticket_id": "TKT-2024-001",
+            "customer_id": "CUST-001",
+            "issue_description": "I can't log into my account with OAuth"
+        }
+    """
+    try:
+        result = run_support_ticket_triage(
+            ticket_id=request.ticket_id,
+            customer_id=request.customer_id,
+            issue_description=request.issue_description,
+        )
+        return SupportTicketTriageResponse(
+            success=result.get("status") == "completed",
+            ticket_id=result.get("ticket_id"),
+            customer_id=result.get("customer_id"),
+            execution_id=result.get("execution_id"),
+            status=result.get("status"),
+            steps_completed=result.get("steps_completed", []),
+            triage_result=result.get("triage_result"),
+            drafted_response=result.get("drafted_response"),
+        )
+    except Exception as exc:
+        logger.error("Support ticket triage workflow failed: %s", str(exc))
+        return SupportTicketTriageResponse(
+            success=False,
+            ticket_id=request.ticket_id,
+            customer_id=request.customer_id,
+            execution_id="",
+            status="failed",
             error=str(exc),
         )
 

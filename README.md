@@ -1,10 +1,12 @@
 # Agentic AI Execution System
 
-A production-style agentic execution system that takes a high-level goal, plans tool-usable steps, executes them, and returns a full step-by-step audit trail.
+**Real Problem Solved**: Safely execute multi-step AI-driven workflows without hidden failures.
+
+Instead of delegating entire workflows to an LLM (which can fail silently or hallucinate), this system **plans steps explicitly**, **validates tool inputs before execution**, and **records every decision** so you know exactly what happened.
 
 **Tech Stack**: Python 3.12 • FastAPI • React 18 • TypeScript • Google Gemini 3.1 Flash
 
-**Key Characteristic**: Strict separation of planner → validator → executor with deterministic audit trails and schema-enforced tool contracts.
+**Production Design**: Strict planner → validator → executor separation with deterministic audit trails, schema-enforced tool contracts, and anti-hallucination patterns.
 
 ## What This Project Is
 
@@ -29,7 +31,7 @@ Flow:
 - Persist execution history via pluggable backend (`jsonl` or `sqlite`).
 - Show execution timeline and history in frontend dashboard.
 - Stream planning/execution progress events from backend to frontend.
-- Run a concrete business workflow endpoint for GitHub repository insights.
+- Run concrete workflow endpoints for support-ticket triage and GitHub repository insights.
 
 ## Why This Is More Than "LLM + Wrapper"
 
@@ -51,26 +53,53 @@ Hard checks in the flow:
 
 ## Production-Ready Design Patterns
 
-**Deterministic Model Identity** (Prevents LLM Hallucination):
-- Model name and provider are answered from stored configuration, not delegated to the LLM
-- New `GET /api/model-info` endpoint returns provider/model without LLM queries
-- Eliminates false answers like "I'm GPT-4o" when running Gemini
-- Implementation: [app/tools/reasoning_tool.py](app/tools/reasoning_tool.py#L130-L144), [app/core/config.py](app/core/config.py#L66-L70)
+### Deterministic Model Identity (Prevents LLM Hallucination)
 
-**Single LLM Provider (Gemini)** (Production Focus):
-- Recently consolidated from multi-provider abstraction (removed Groq, OpenAI support)
-- Uses Google Gemini 3.1 Flash Lite for cost-effective quality
-- Fallback: Gemini 2.0 Flash if primary unavailable
-- Reduces code complexity, improves testability, enforces consistent behavior
-- Configuration locked at startup to prevent provider mismatch at runtime
+Problem solved in this project: model-identity questions were previously delegated to the LLM, which can answer with the wrong model name.
 
-**Schema-Enforced Tool Contracts**:
-- Every tool has a typed input schema (Pydantic)
-- Planner repairs invalid step inputs before executor receives them
-- Executor validates again and rejects mismatches
-- Double validation catches both planner and tool errors
+Current behavior: identity is served from configuration, not from LLM generation.
 
-## Architecture
+Implementation references:
+- [app/tools/reasoning_tool.py](app/tools/reasoning_tool.py)
+- [app/api/routes.py](app/api/routes.py)
+- [app/core/config.py](app/core/config.py)
+
+How to verify:
+
+```bash
+curl http://localhost:8000/api/model-info
+```
+
+Expected shape:
+
+```json
+{"provider":"gemini","model":"gemini-3.1-flash-lite-preview"}
+```
+
+### Schema-Enforced Tool Contracts (Prevents Silent Failures)
+
+Problem solved in this project: planner output can be malformed or missing tool fields.
+
+Current behavior:
+- Planner output is validated and repaired before execution.
+- Executor validates tool input schema again before running tool logic.
+- Invalid input is returned as structured failure, not hidden text.
+
+Implementation references:
+- [app/agents/validator.py](app/agents/validator.py)
+- [app/agents/executor.py](app/agents/executor.py)
+- [app/tools/base.py](app/tools/base.py)
+
+### Single LLM Provider (Gemini) - Intentional Consolidation
+
+Why multi-provider support was removed in this version:
+- Simpler debugging and reproducibility across environments.
+- Fewer code paths and integration edge-cases to maintain.
+- More stable behavior for tests and demos.
+
+Honest tradeoff: this improves consistency, but reduces provider flexibility.
+
+## Architecture & Design Patterns
 
 ```text
 Goal Input (Frontend)
@@ -90,53 +119,66 @@ Response
     -> Execution timeline + result in frontend
 ```
 
-## Concrete End-to-End Demo (Real)
+## Real-World Workflow Example: Support Ticket Triage
 
-Use case: fetch GitHub repository metadata, then summarize.
+Business problem: support teams lose time triaging repeated tickets and can miss customer context.
 
-Example request:
+What this workflow does now:
+- Accepts ticket details.
+- Runs a multi-step triage through the planner-validator-executor flow.
+- Uses in-project knowledge-base and customer-history data (demo dataset).
+- Returns draft response plus full execution trace.
 
+Implementation references:
+- [app/workflows/support_ticket_triage.py](app/workflows/support_ticket_triage.py)
+- [app/api/routes.py](app/api/routes.py)
+- [app/schemas/workflows.py](app/schemas/workflows.py)
+
+**Request**:
+```bash
+curl -X POST http://localhost:8000/api/workflows/support-ticket-triage \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticket_id": "TKT-2024-001",
+    "customer_id": "CUST-001",
+    "issue_description": "I cannot log into my account with OAuth. I keep getting an error saying invalid_client"
+  }'
+```
+
+**Workflow Steps (Typical)**:
+1. Analyze ticket and infer likely category/severity.
+2. Retrieve relevant KB snippets from the in-project dataset.
+3. Pull customer context from the in-project dataset.
+4. Draft a response in a support-friendly format.
+5. Return execution trace (per-step success, output, and errors).
+
+**Response Shape Includes**:
 ```json
 {
-  "goal": "Fetch details for github.com/python/cpython and summarize key metrics",
-  "context": {
-    "owner": "python",
-    "repo": "cpython"
-  }
+  "ticket_id": "TKT-2024-001",
+  "customer_id": "CUST-001",
+  "execution_id": "uuid",
+  "status": "completed",
+  "steps_completed": [
+    {
+      "step_number": 1,
+      "description": "...",
+      "tool_name": "reasoning|memory|http",
+      "success": true,
+      "output": {}
+    }
+  ],
+  "drafted_response": "Hi Acme Corp, your OAuth issue is commonly resolved by clearing browser cache. Here's how to do that [links]. If you still see the error, please reply with your browser version."
 }
 ```
 
-Typical planned steps (shape):
+**Why This Matters**:
+- No hidden failures (every step is recorded)
+- Transparent process (you can inspect what each step did)
+- Extensible (add new steps: ticket urgency alert, Slack notification, etc.)
+- Recoverable (if one step fails, you know exactly which one and why)
 
-```json
-[
-  {
-    "step_number": 1,
-    "description": "Fetch repository metadata via API",
-    "tool_name": "http",
-    "input_data": {
-      "method": "GET",
-      "url": "https://api.github.com/repos/python/cpython"
-    }
-  },
-  {
-    "step_number": 2,
-    "description": "Summarize fetched repository data",
-    "tool_name": "reasoning",
-    "input_data": {
-      "question": "Summarize the repository metrics",
-      "context": "...tool output..."
-    }
-  }
-]
-```
-
-What is returned:
-
-- step-by-step `steps_completed`
-- per-step success/failure
-- final structured result (`success`, `content`, `source`, `confidence`, `execution_id`)
-- summary metrics (`tools_used`, `duration_ms`, failures)
+Important scope note: this workflow currently uses local demo KB/customer datasets, not live helpdesk integrations.
 
 ## Current API Endpoints
 
@@ -144,7 +186,8 @@ Core execution:
 
 - `POST /api/execute` - Execute goal with plan, validate, execute
 - `POST /api/execute/stream` - Same as above with SSE lifecycle events
-- `POST /api/workflows/github-repo-insights` - Concrete business workflow example
+- `POST /api/workflows/support-ticket-triage` - **Support ticket triage and response drafting** ⭐ NEW
+- `POST /api/workflows/github-repo-insights` - Fetch and summarize repository metrics
 - `GET /api/model-info` - Deterministic provider/model info (no LLM call)
 - `GET /health` - Health check
 - `GET /` - Root
@@ -220,6 +263,34 @@ Important honesty note:
 
 - The UI now consumes SSE progress events from `/api/execute/stream`.
 - WebSocket transport is not implemented yet (SSE is currently used).
+
+## Available Workflows (Templates)
+
+The system includes composable workflow templates using the core tools:
+
+**Included Workflows**:
+- `support-ticket-triage`: Analyze tickets and draft responses using a simulated KB and customer history dataset
+- `github-repo-insights`: Fetch repository data and summarize metrics
+
+**Future Workflow Ideas**: DevOps incident response, meeting-to-task automation, research report generation, invoice processing
+
+Workflows are built by composing the 3 core tools in different sequences. This demonstrates extensibility without changing the core orchestration engine.
+
+## Interview Defense: Claims Mapped to Code
+
+If asked to defend key claims during interview, use these concrete pointers:
+
+- "How does validator repair tool input?"
+  - [app/agents/validator.py](app/agents/validator.py)
+- "Why validate twice?"
+  - [app/agents/validator.py](app/agents/validator.py)
+  - [app/agents/executor.py](app/agents/executor.py)
+- "Where is deterministic model identity implemented?"
+  - [app/tools/reasoning_tool.py](app/tools/reasoning_tool.py)
+  - [app/api/routes.py](app/api/routes.py)
+- "How are step traces persisted?"
+  - [app/storage/execution_history.py](app/storage/execution_history.py)
+  - [app/memory/schemas.py](app/memory/schemas.py)
 
 ## Tools (Current)
 
