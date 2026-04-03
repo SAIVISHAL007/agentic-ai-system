@@ -2,6 +2,7 @@
 
 from typing import Any, Callable, Dict, Optional
 import json
+import re
 import time
 from app.agents.planner import PlannerAgent
 from app.agents.executor import ExecutorAgent
@@ -220,6 +221,12 @@ class AgentRunner:
         # SUCCESS: Extract output from best available step (not just last step).
         best_step = self._select_best_output_step(steps)
         content = self._extract_content(best_step)
+        if self._looks_like_placeholder(content):
+            fallback_content = self._extract_fallback_content(steps, best_step)
+            if fallback_content and not self._looks_like_placeholder(fallback_content):
+                content = fallback_content
+            else:
+                content = "Execution completed, but no grounded final answer was produced."
         source = self._derive_source(tools_used)
         confidence = self._derive_confidence(source, execution_context.goal, content)
 
@@ -274,6 +281,38 @@ class AgentRunner:
         if isinstance(output, str):
             return output
         return json.dumps(output, indent=2)
+
+    def _extract_fallback_content(self, steps: list[Any], primary_step: Any) -> str:
+        """Find the most grounded alternative content when the preferred output is bad."""
+        if not steps:
+            return ""
+
+        for step in reversed(steps):
+            if step is primary_step or not step.success:
+                continue
+            if step.tool_name == "memory" and self._is_memory_ack(step.output):
+                continue
+            candidate = self._extract_content(step)
+            if candidate and not self._looks_like_placeholder(candidate):
+                return candidate
+
+        return ""
+
+    def _looks_like_placeholder(self, content: Any) -> bool:
+        """Return True when content still contains unresolved template tokens."""
+        if not isinstance(content, str):
+            return False
+
+        text = content.strip()
+        if not text:
+            return False
+
+        placeholder_patterns = (
+            r"^\$[A-Za-z_][A-Za-z0-9_]*$",
+            r"\$[A-Za-z_][A-Za-z0-9_]*",
+            r"\{[A-Za-z_][A-Za-z0-9_]*\}",
+        )
+        return any(re.search(pattern, text) for pattern in placeholder_patterns)
 
     def _is_memory_ack(self, output: Any) -> bool:
         """Return True if output is a memory acknowledgement rather than user-facing data."""

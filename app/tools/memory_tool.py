@@ -50,7 +50,11 @@ class MemoryTool(BaseTool):
                 logger.debug(f"Memory: stored '{input_data.key}'")
                 return ToolOutput(
                     success=True,
-                    result={"message": f"Stored value at key '{input_data.key}'"}
+                    result={
+                        "message": f"Stored value at key '{input_data.key}'",
+                        "key": input_data.key,
+                        "value": input_data.value
+                    }
                 )
             
             elif action == "retrieve":

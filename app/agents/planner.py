@@ -358,7 +358,7 @@ Generate the plan now:"""
             ]
 
         if "weather" in goal_text:
-            location = self._extract_location(goal_text, context) or "London"
+            location = self._extract_location(goal, context) or "London"
             return [
                 ExecutionStep(
                     step_number=1,
@@ -413,15 +413,24 @@ Generate the plan now:"""
                 currencies.append(currency)
         return currencies
 
-    def _extract_location(self, goal_text: str, context: Dict[str, Any]) -> Optional[str]:
+    def _extract_location(self, goal: str, context: Dict[str, Any]) -> Optional[str]:
         for key in ("location", "city", "place"):
             value = context.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
 
-        match = re.search(r"(?:in|for|at)\s+([A-Za-z][A-Za-z\s-]{1,40})", goal_text)
+        match = re.search(r"(?:weather\s+(?:in|for|at)|in|for|at)\s+([A-Z][A-Za-z-]*(?:\s+[A-Z][A-Za-z-]*)?)", goal)
         if match:
             return match.group(1).strip()
+
+        match = re.search(r"(?:weather\s+(?:in|for|at)|in|for|at)\s+([a-z][a-z-]*(?:\s+[a-z][a-z-]*)?)", goal, re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip()
+            stop_words = {"and", "or", "with", "for", "the", "a", "an", "summary", "conditions", "what", "happens", "when", "you", "ask", "latest"}
+            words = [word for word in candidate.split() if word.lower() not in stop_words]
+            if words:
+                return " ".join(words[:2]).strip()
+
         return None
 
     def _extract_github_repo(self, goal: str, context: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
@@ -547,8 +556,8 @@ Generate the plan now:"""
             description="Internal reasoning: Generate final user-facing answer from gathered tool outputs",
             tool_name="reasoning",
             input_data={
-                "question": f"Provide the final answer for this goal using retrieved tool data: {goal}. Focus on the actual outcome, not storage acknowledgements.",
-                "context": "Use grounded outputs from prior steps. Summarize the result directly for the user.",
+                "question": f"Provide the final answer for this goal using retrieved tool data: {goal}. Focus on the actual outcome, not storage acknowledgements. Never leave template variables or placeholders unresolved.",
+                "context": "Use grounded outputs from prior steps. Summarize the result directly for the user. Replace any placeholders with the actual values from tool outputs.",
             },
             reasoning=(
                 "Final step converts intermediate tool outputs into a direct answer so the "

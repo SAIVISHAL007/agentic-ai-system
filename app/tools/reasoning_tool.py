@@ -51,8 +51,11 @@ class ReasoningTool(BaseTool):
             logger.debug(f"Answering question: {input_data.question}")
 
             system_message = (
-                "You are an agentic execution system. Provide a concise, accurate"
-                " explanation based on the provided context."
+                "You are an agentic execution system. Provide a concise, accurate answer based on the provided context. "
+                "CRITICAL: If context contains actual data (numbers, values, metrics), extract and use them directly in your answer. "
+                "Do NOT say 'the value stored at key X' or 'I would need to retrieve'. Instead, provide the actual value from context. "
+                "Never output unresolved template variables, placeholders, or variable-style tokens such as $bitcoin_price or {variable}. "
+                "If context is insufficient, say so explicitly instead of describing what you would need."
             )
 
             user_prompt = f"Question: {input_data.question}"
