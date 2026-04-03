@@ -23,6 +23,17 @@ router = APIRouter(prefix="/api", tags=["agents"])
 _runner: AgentRunner | None = None
 
 
+@router.get("/model-info")
+def get_model_info() -> dict:
+    """Return active LLM provider/model configuration for UI diagnostics."""
+    provider = settings.LLM_PROVIDER.lower()
+    model = settings.GEMINI_MODEL if provider == "gemini" else "unknown"
+    return {
+        "provider": provider,
+        "model": model,
+    }
+
+
 def get_runner() -> AgentRunner:
     """Get or create the agent runner (lazy initialization)."""
     global _runner
